@@ -23,6 +23,8 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 from urllib.parse import urlparse
 
+Color = None  # type: ignore
+
 try:  # Optional dependency – callers should install reportlab.
     from reportlab.lib.colors import Color
     from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY, TA_LEFT, TA_RIGHT
@@ -42,7 +44,10 @@ DEFAULT_PAGE_WIDTH = 794.0
 DEFAULT_PAGE_HEIGHT = 1123.0
 DEFAULT_FONT = "Helvetica"
 DEFAULT_FONT_BOLD = "Helvetica-Bold"
-DEFAULT_TEXT_COLOR = Color(0.11, 0.14, 0.2)
+if REPORTLAB_AVAILABLE:
+    DEFAULT_TEXT_COLOR = Color(0.11, 0.14, 0.2)
+else:  # pragma: no cover - only hit when reportlab is missing
+    DEFAULT_TEXT_COLOR = None
 TEXT_PADDING = 16.0
 
 
