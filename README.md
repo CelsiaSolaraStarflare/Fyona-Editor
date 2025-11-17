@@ -118,9 +118,15 @@ The application will be available at `http://localhost:5001`.
 
 ### Exporting to PDF
 
-PDF export functionality is available through the API endpoints:
-- Vector-based export using ReportLab
-- Snapshot-based export using PyMuPDF
+PDF export now happens through a dedicated module (`pdf_export.py`) and an HTTP endpoint:
+
+- `render_layout_to_pdf()` turns any layout dictionary into a vector PDF. Pass a project directory via `asset_base` so linked images are embedded at full resolution. The helper returns the raw bytes plus render stats (pages, block counts, layout digest) so you can assert the export was lossless.
+- `GET /api/export/pdf?project=<name>` streams a print-ready PDF for a project. The response includes `X-Layout-Digest`, `X-Blocks-Rendered`, and `X-Blocks-Expected` headers so clients can confirm every block was preserved. Example:
+  ```bash
+  curl -L "http://localhost:5001/api/export/pdf?project=default" \
+    -o default-layout.pdf -D -
+  ```
+  Compare the `X-Layout-Digest` header with a hash of `layout.json` to verify the canvas and PDF are identical.
 
 ## API Endpoints
 
@@ -134,6 +140,9 @@ PDF export functionality is available through the API endpoints:
 
 ### Media Handling
 - `POST /api/upload` - Upload images
+
+### Document Export
+- `GET /api/export/pdf?project=:project` - Render a lossless PDF that mirrors the canvas
 
 ### AI Assistant
 - `POST /api/agent/run` - Run the AI assistant

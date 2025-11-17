@@ -225,7 +225,7 @@ select:focus {
     padding: clamp(16px, 2vw, 32px);
     display: flex;
     justify-content: center;
-    align-items: center;
+    align-items: flex-start;
     background: transparent;
     border: none;
     border-radius: 0;
@@ -241,7 +241,7 @@ select:focus {
     min-height: 100%;
     display: flex;
     justify-content: center;
-    align-items: center;
+    align-items: flex-start;
     overflow: visible;
 }
 

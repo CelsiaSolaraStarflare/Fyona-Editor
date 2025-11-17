@@ -1,3 +1,4 @@
+import io
 import json
 import re
 from copy import deepcopy
@@ -5,9 +6,10 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, Optional
 from uuid import uuid4
 
-from flask import Flask, jsonify, render_template, request, send_from_directory, url_for
+from flask import Flask, jsonify, render_template, request, send_file, send_from_directory, url_for
 from werkzeug.utils import secure_filename
 
+from pdf_export import PdfExportError, render_layout_to_pdf
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
 
@@ -279,6 +281,28 @@ def upload_media():
     if block is not None:
         response_payload["block"] = block
     return jsonify(response_payload)
+
+
+@app.route("/api/export/pdf", methods=["GET"])
+def export_project_pdf():
+    project = sanitize_project(request.args.get("project") or DEFAULT_PROJECT)
+    layout = load_layout(project)
+    assets = project_dir(project)
+    try:
+        result = render_layout_to_pdf(layout, project_name=project, asset_base=assets, persist=False, verify_lossless=True)
+    except PdfExportError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 400
+    except Exception:  # pragma: no cover - defensive catch to avoid exposing tracebacks
+        return jsonify({"success": False, "error": "Unexpected error during export."}), 500
+
+    buffer = io.BytesIO(result.data)
+    buffer.seek(0)
+    download_name = f"{project}-layout.pdf"
+    response = send_file(buffer, mimetype="application/pdf", as_attachment=True, download_name=download_name)
+    response.headers["X-Layout-Digest"] = result.digest
+    response.headers["X-Blocks-Rendered"] = str(result.stats.blocks_rendered)
+    response.headers["X-Blocks-Expected"] = str(result.stats.blocks_attempted)
+    return response
 
 
 @app.route("/project-assets/<project>/<path:filename>")
