@@ -8,9 +8,6 @@ from uuid import uuid4
 from flask import Flask, jsonify, render_template, request, send_from_directory, url_for
 from werkzeug.utils import secure_filename
 
-from agent_tools import LayoutSession, TOOL_DEFINITIONS
-from core import remote_chat, DEFAULT_MODEL
-from snapshot import snapshot_for_project
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
 
@@ -282,65 +279,6 @@ def upload_media():
     if block is not None:
         response_payload["block"] = block
     return jsonify(response_payload)
-
-
-@app.route("/api/agent/run", methods=["POST"])
-def run_agent():
-    payload = request.get_json(silent=True) or {}
-    project = sanitize_project(payload.get("project") or DEFAULT_PROJECT)
-    prompt = str(payload.get("prompt") or "").strip() or "Assess the layout and improve hierarchy, storytelling, and polish."
-    snapshot_data = payload.get("snapshot")
-    model = str(payload.get("model") or DEFAULT_MODEL).strip() or DEFAULT_MODEL
-
-    layout = load_layout(project)
-    session = LayoutSession(layout, project=project)
-
-    if not snapshot_data:
-        try:
-            snapshot_data = snapshot_for_project(project, layout_override=layout)
-        except Exception:
-            snapshot_data = None
-
-    system_prompt = payload.get("systemPrompt") or (
-        "You are Fiona's autonomous editorial design agent. You can plan changes, "
-        "call the provided layout tools, and stop once the spreads feel balanced. "
-        "Always describe your reasoning before taking actions."
-    )
-    messages = [
-        {"role": "system", "content": system_prompt},
-        {"role": "user", "content": prompt},
-    ]
-
-    try:
-        agent_result = remote_chat(
-            messages,
-            snapshot_b64=snapshot_data,
-            model=model,
-            tools=TOOL_DEFINITIONS,
-            tool_handler=session.execute_tool,
-        )
-    except Exception as exc:  # pylint: disable=broad-except
-        return jsonify({"success": False, "error": str(exc)}), 500
-
-    updated_layout = session.layout
-    modified = session.modified
-    if modified:
-        updated_layout = save_layout(project, session.layout)
-
-    events = [event.to_dict() for event in session.events]
-
-    return jsonify(
-        {
-            "success": True,
-            "project": project,
-            "layout": updated_layout,
-            "events": events,
-            "answer": agent_result.get("answer"),
-            "reasoning": agent_result.get("reasoning"),
-            "tool_calls": agent_result.get("tool_calls", []),
-            "modified": modified,
-        }
-    )
 
 
 @app.route("/project-assets/<project>/<path:filename>")

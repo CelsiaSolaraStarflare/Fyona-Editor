@@ -51,11 +51,6 @@
             <aside class="inspector" aria-label="Inspector" id="inspector-panel">
                 <div id="inspector-shell" class="inspector__shell">
                     <h2>Block Properties</h2>
-                    <div class="inspector__agent-launch">
-                        <button type="button" id="agent-toggle" class="btn btn--agent">
-                            AI Chat
-                        </button>
-                    </div>
                     <div id="inspector-empty" class="inspector__empty">
                         Select a block to edit its properties.
                     </div>
@@ -111,38 +106,6 @@
                         </div>
                     </form>
                 </div>
-                <section id="agent-console" class="agent-console" aria-live="polite" hidden>
-                    <header class="agent-panel__header">
-                        <div>
-                            <p class="agent-panel__eyebrow">Futurist Companion</p>
-                            <h2 id="agent-panel-title">Nova Chat</h2>
-                        </div>
-                        <button type="button" id="agent-close" class="agent-panel__close" aria-label="Close agent mode">✕</button>
-                    </header>
-                    <div class="agent-panel__body agent-panel__body--chat">
-                        <div class="agent-chat-window">
-                            <div class="agent-panel__reply agent-chat-window__status">
-                                <p class="agent-panel__label">Latest Reply</p>
-                                <div id="agent-response" class="agent-response" aria-live="polite"></div>
-                            </div>
-                            <div class="agent-panel__history agent-chat-window__history">
-                                <div class="agent-chat-window__history-header">
-                                    <p class="agent-panel__label">Conversation</p>
-                                    <span class="agent-chat-window__badge">Live Feed</span>
-                                </div>
-                                <div id="agent-history" class="agent-history" aria-live="polite"></div>
-                            </div>
-                        </div>
-                        <div class="agent-chat-input">
-                            <label for="agent-prompt" class="agent-panel__label">New Prompt</label>
-                            <textarea id="agent-prompt" rows="3" placeholder="Describe the mood, spacing, or storytelling shift you want."></textarea>
-                            <div class="agent-panel__actions agent-panel__actions--chat">
-                                <button type="button" id="agent-cancel" class="btn btn--secondary" disabled>Abort</button>
-                                <button type="button" id="agent-run" class="btn btn--primary">Send</button>
-                            </div>
-                        </div>
-                    </div>
-                </section>
             </aside>
         </main>
     </div>
@@ -155,7 +118,6 @@
         </div>
     </template>
 
-    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js" integrity="sha256-OY8YT2vNh+lX6YsJhBKt3vnDnN/SUXOcDSBx/OVCkXw=" crossorigin="anonymous"></script>
     <script src="{{ url_for('static', filename='js/app.js') }}" defer></script>
 </body>
 </html>

@@ -1,184 +1,105 @@
 # Fiona Editorial Studio - Project Context
 
 ## Project Overview
+Fiona is a web-based editorial layout studio built with Flask and vanilla JavaScript. It provides a visual canvas for creating magazine-style layouts with text and image blocks, precise grid controls, and an inspector for fine-tuning block properties.
 
-Fiona is a web-based editorial layout studio built with Flask (Python) on the backend and vanilla JavaScript on the frontend. It provides a visual canvas for creating magazine-style layouts with AI assistance capabilities. The application allows users to design multi-page layouts with blocks (text, images, etc.), layers, and precise grid controls.
+> **Note:** The autonomous AI agent that previously shipped with Fiona has been removed. The application now focuses exclusively on the manual layout editor experience.
 
 Key features include:
-- Visual layout editor with drag-and-drop blocks
-- AI assistant integration with vision capabilities (using Qwen3-VL-Plus)
-- Time Machine functionality for version control via Git
-- PDF export capabilities (both vector and snapshot-based)
-- Multi-page support with layer management
-- Responsive design tools with precise grid controls
+- Visual layout editor with drag-and-drop block manipulation
+- Precise canvas controls (format, orientation, zoom, snapping)
+- Project management backed by simple JSON files
+- Media upload pipeline scoped to each project
+- Snapshot helpers for exports via `snapshot.py`
+- Responsive inspector for editing block content and styling
 
 ## Technology Stack
 
 ### Backend
-- **Flask** - Python web framework
-- **OpenAI-compatible API** - For connecting to Qwen3-VL-Plus model
-- **Git** - For Time Machine version control
-- **ReportLab** - For vector PDF export
-- **PyMuPDF (fitz)** - For snapshot-based PDF export
-- **Pillow** - For image processing and snapshots
+- **Flask** – Python web framework used for routing and JSON APIs
+- **Python standard library** – `json`, `pathlib`, `uuid`, and friends for persistence utilities
+- **Pillow / PyMuPDF (optional)** – Used by `snapshot.py` for snapshot or PDF helpers when enabled
 
 ### Frontend
-- **Vanilla JavaScript** - No framework dependencies
-- **HTML5/CSS3** - For layout and styling
-- **Liquid Glass effect** - Custom visual effects (both vanilla JS and React versions available)
-- **html2canvas** - For client-side screenshot capture
-- **jsPDF** - For PDF generation
+- **Vanilla JavaScript** – Single-page controller contained in `static/js/app.js`
+- **HTML5 & CSS3** – Layout shell defined in `templates/index.html` and styled via `static/css/styles.css`
 
 ## Project Structure
-
 ```
 Fiona/
-├── app.py                 # Main Flask application
-├── core.py                # AI chat functionality
-├── agent_tools.py         # Tool definitions for AI assistant
-├── snapshot.py            # Layout snapshot generation
-├── pdf_export.py          # PDF export functionality
-├── requirements.txt       # Python dependencies
-├── state/                 # User data and layouts
-├── static/                # Frontend assets (CSS, JS)
-│   ├── css/
-│   │   └── styles.css     # Main stylesheet
-│   └── js/
-│       ├── app.js         # Main application logic
-│       └── src/           # Modular JavaScript components
+├── app.py                 # Flask application and API routes
+├── snapshot.py            # Snapshot helpers for exports
+├── others/                # Additional documentation and resources
+├── projects/              # Per-project layout JSON and media folders
+├── static/
+│   ├── css/styles.css     # Main stylesheet
+│   └── js/app.js          # Browser application logic
+└── templates/index.html   # UI markup for the editor
 ```
 
 ## Core Functionality
 
 ### Layout Editor
-The main interface allows users to:
-- Create and edit multi-page layouts
-- Add various block types (headline, body, image, pullquote, etc.)
-- Manage layers for organizing content
-- Use precise grid controls for alignment
-- Apply typography and styling options
+- Layouts consist of ordered blocks with geometry, content, and styling metadata.
+- The frontend keeps a `state` object in sync with the DOM and the persisted layout JSON.
+- Users can create text or image blocks, drag/resize them, and edit properties through the inspector.
 
-### AI Assistant
-The AI assistant uses Qwen3-VL-Plus to:
-- Understand layout context through visual snapshots
-- Execute tool calls to modify layouts
-- Provide reasoning and answers to user queries
-- Support both local and remote model modes
+### Media Pipeline
+- `/api/upload` accepts file uploads scoped to a project and optional block.
+- Uploaded assets are stored under `projects/<project>/media/` and linked back to the relevant block.
 
-### Time Machine
-Version control system using Git to:
-- Automatically commit layout changes
-- Browse historical snapshots
-- Revert to previous versions
+### Persistence
+- Layouts live as `projects/<project>/layout.json` files.
+- `/api/layout` (GET/POST) loads or saves full layouts after normalization on the server.
+- `/api/block` handles granular block mutations (create/update/delete) without re-uploading the entire layout.
 
-### Export
-Multiple export options:
-- PDF export (vector-based using ReportLab)
-- PDF export (snapshot-based using PyMuPDF)
-- JSON export of layout data
+### Snapshot & Export Helpers
+- The optional utilities in `snapshot.py` produce canvas snapshots or PDFs for export workflows.
+- These helpers are decoupled from the main app and can be invoked from scripts or future routes.
 
 ## Development Setup
 
 ### Prerequisites
 - Python 3.10+
-- Node.js (for Liquid Glass React development)
-- Git (for Time Machine functionality)
+- `pip` for dependency management
 
 ### Installation
-1. Install Python dependencies:
-   ```bash
-   pip install -r requirements.txt
-   ```
-
-2. For PDF export functionality, ensure ReportLab is available:
-   ```bash
-   pip install reportlab
-   ```
-
-3. For snapshot-based PDF export, install PyMuPDF:
-   ```bash
-   pip install PyMuPDF
-   ```
+```bash
+pip install -r others/requirements.txt
+```
+The requirements file lists Flask and the optional imaging libraries. Install only what you need for your workflow.
 
 ### Running the Application
 ```bash
 python app.py
 ```
-The application will start on http://localhost:5001
+The development server listens on `http://localhost:5001`.
+
+### Environment Variables
+No special environment variables are required for the manual editor flow.
 
 ## Key APIs
-
-### Layout Management
-- `GET /layout` - Retrieve current layout
-- `POST /save-layout` - Save layout data
-- `GET /projects` - List available projects
-- `GET /demo-layout` - Load demo layout
-
-### AI Assistant
-- `POST /api/assistant/chat` - Send message to AI assistant
-
-### Time Machine
-- `POST /time-machine/snapshot` - Create snapshot
-- `GET /time-machine/history` - Get snapshot history
-- `POST /time-machine/revert` - Revert to snapshot
-
-### Export
-- `POST /export/pdf` - Export layout as PDF
-
-### Settings
-- `GET /api/settings` - Get application settings
-- `POST /api/settings` - Update application settings
+- `GET /api/projects` – List available projects
+- `GET /api/layout?project=:id` – Load a project's layout
+- `POST /api/layout` – Persist a full layout payload
+- `POST /api/block` – Create, update, or delete a single block
+- `POST /api/upload` – Upload media files scoped to a project (and optionally a block)
 
 ## Development Conventions
 
 ### Backend
-- Follow Flask patterns for route handling
-- Use type hints for function parameters and return values
-- Maintain consistent error handling with JSON responses
-- Use logging for debugging and monitoring
+- Keep route handlers in `app.py` small and focused on validation/persistence.
+- Normalize incoming block/layout payloads before writing to disk.
+- Prefer helper functions in `snapshot.py` for any image/PDF exports.
 
 ### Frontend
-- Modular JavaScript organization in static/js/src/
-- CSS follows BEM naming conventions
-- Template-based HTML structure
-- Event-driven architecture for UI interactions
-
-### AI Tool Integration
-- Tools are defined in `agent_tools.py`
-- Each tool has a specific handler in `LayoutSession` class
-- Tool events are tracked for UI feedback
-- Layout mutations are tracked for auto-application
-
-## Building and Running
-
-### Development
-```bash
-python app.py
-```
-
-### Production
-For production deployment, use Gunicorn:
-```bash
-gunicorn -w 4 -b 0.0.0.0:5001 app:app
-```
-
-### Testing
-Currently, there are no automated tests. Manual testing through the UI is recommended.
+- Maintain all DOM references inside the `els` map at the top of `static/js/app.js`.
+- Use the shared `state` object to coordinate canvas rendering, inspector updates, and selection.
+- Avoid framework dependencies—everything is plain DOM + CSS Variables.
 
 ## Contributing
-
-1. Follow the existing code style and conventions
-2. Add type hints to new Python functions
-3. Maintain backward compatibility when possible
-4. Update documentation when adding new features
-5. Test changes thoroughly before submitting
-
-## Key Files to Understand the Codebase
-
-1. **app.py** - Main application entry point and route definitions
-2. **core.py** - AI chat functionality and model integration
-3. **agent_tools.py** - Tool definitions and layout mutation handlers
-4. **snapshot.py** - Layout snapshot generation for AI context
-5. **pdf_export.py** - PDF export functionality
-6. **templates/index.html** - Main UI layout and controls
-7. **static/js/app.js** - Main frontend application logic
+1. Fork the repository
+2. Create a feature branch
+3. Make and test your changes
+4. Update documentation if you add new capabilities
+5. Submit a pull request
