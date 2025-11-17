@@ -19,6 +19,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
+from PIL import Image
+
 from fonts import find_font
 from pdf_export import PdfExportError, PdfRenderResult, PdfRenderStats, render_layout_to_pdf
 from raster_export import RasterPage, rasterize_layout
@@ -82,6 +84,17 @@ FONT_NAME_ALIASES = {
     "monospace": "Space Grotesk",
     "courier": "Courier New",
 }
+
+DOCX_IMAGE_SIGNATURES = [
+    (0, b"\x89PNG\r\n\x1a\n"),
+    (6, b"JFIF"),
+    (6, b"Exif"),
+    (0, b"GIF87a"),
+    (0, b"GIF89a"),
+    (0, b"MM\x00*"),
+    (0, b"II*\x00"),
+    (0, b"BM"),
+]
 
 
 def export_layout(
@@ -354,7 +367,9 @@ def _resolve_docx_image_stream(block: Dict[str, Any], asset_root: Optional[Path]
     for source in sources:
         inline = _decode_image_data_uri(source)
         if inline:
-            return io.BytesIO(inline)
+            stream = _prepare_docx_image_stream(inline)
+            if stream:
+                return stream
 
         parsed = urlparse(source)
         if parsed.scheme in {"http", "https"}:
@@ -365,9 +380,12 @@ def _resolve_docx_image_stream(block: Dict[str, Any], asset_root: Optional[Path]
         for candidate in (asset_root / "media" / filename, asset_root / filename):
             if candidate.exists():
                 try:
-                    return io.BytesIO(candidate.read_bytes())
+                    raw_bytes = candidate.read_bytes()
                 except Exception:
                     continue
+                stream = _prepare_docx_image_stream(raw_bytes)
+                if stream:
+                    return stream
     return None
 
 
@@ -386,6 +404,38 @@ def _decode_image_data_uri(value: Any) -> Optional[bytes]:
         return base64.b64decode(data)
     except Exception:
         return None
+
+
+def _prepare_docx_image_stream(raw_bytes: bytes) -> Optional[io.BytesIO]:
+    if not raw_bytes:
+        return None
+    if _is_docx_compatible_image(raw_bytes):
+        stream = io.BytesIO(raw_bytes)
+        stream.seek(0)
+        stream.name = "fyona-image.bin"
+        return stream
+    try:
+        with Image.open(io.BytesIO(raw_bytes)) as image:
+            needs_alpha = "A" in image.getbands()
+            converted = image.convert("RGBA" if needs_alpha else "RGB")
+            buffer = io.BytesIO()
+            converted.save(buffer, format="PNG")
+    except Exception:
+        return None
+    buffer.seek(0)
+    buffer.name = "fyona-image.png"
+    return buffer
+
+
+def _is_docx_compatible_image(raw_bytes: bytes) -> bool:
+    header = raw_bytes[:32]
+    for offset, signature in DOCX_IMAGE_SIGNATURES:
+        end = offset + len(signature)
+        if len(header) < end:
+            continue
+        if header[offset:end] == signature:
+            return True
+    return False
 
 
 def _sanitize_docx_text(content: Any) -> str:
