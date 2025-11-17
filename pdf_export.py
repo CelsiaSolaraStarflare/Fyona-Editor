@@ -23,6 +23,8 @@ from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 from urllib.parse import urlparse
 
+from fonts import FontInfo, find_font
+
 Color = None  # type: ignore
 
 try:  # Optional dependency – callers should install reportlab.

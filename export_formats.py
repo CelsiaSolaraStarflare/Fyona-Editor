@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import base64
 import io
+import math
 import re
 import zipfile
 from dataclasses import dataclass
@@ -23,8 +24,10 @@ from raster_export import RasterPage, rasterize_layout
 
 try:  # Optional dependency for Word exports
     from docx import Document  # type: ignore
-    from docx.enum.text import WD_ALIGN_PARAGRAPH  # type: ignore
-    from docx.shared import Inches, Pt, RGBColor  # type: ignore
+    from docx.enum.section import WD_SECTION  # type: ignore
+    from docx.shared import Inches  # type: ignore
+    from docx.oxml import OxmlElement  # type: ignore
+    from docx.oxml.ns import qn  # type: ignore
 except ImportError as exc:  # pragma: no cover
     DOCX_AVAILABLE = False
     DOCX_IMPORT_ERROR = exc

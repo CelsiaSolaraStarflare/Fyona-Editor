@@ -11,6 +11,7 @@ from flask import Flask, jsonify, render_template, request, send_file, send_from
 from werkzeug.utils import secure_filename
 
 from export_formats import ExportFormatError, export_layout
+from fonts import get_font, list_fonts
 from pdf_export import PdfExportError
 from raster_export import rasterize_layout
 
@@ -436,6 +437,29 @@ def serve_project_asset(project: str, filename: str):
     project_name = sanitize_project(project)
     directory = media_dir(project_name)
     return send_from_directory(directory, filename)
+
+
+@app.route("/api/fonts", methods=["GET"])
+def list_available_fonts():
+    fonts = [
+        {
+            "id": font.id,
+            "name": font.name,
+            "category": "manual" if font.category == "manual" else "system",
+            "url": url_for("serve_font_file", font_id=font.id),
+        }
+        for font in list_fonts()
+    ]
+    return jsonify({"fonts": fonts})
+
+
+@app.route("/fonts/<font_id>", methods=["GET"])
+def serve_font_file(font_id: str):
+    font = get_font(font_id)
+    if not font:
+        return jsonify({"success": False, "error": "font not found"}), 404
+    mimetype = "font/ttf" if font.path.suffix.lower() == ".ttf" else "font/otf"
+    return send_file(font.path, mimetype=mimetype, conditional=True)
 
 
 @app.route("/api/chat", methods=["POST"])
