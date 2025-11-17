@@ -5,7 +5,8 @@ document.addEventListener('DOMContentLoaded', () => {
         addText: document.getElementById('add-text'),
         addImage: document.getElementById('add-image'),
         saveLayout: document.getElementById('save-layout'),
-        exportPdf: document.getElementById('export-pdf'),
+        exportButton: document.getElementById('export-document'),
+        exportFormat: document.getElementById('export-format'),
         canvas: document.getElementById('canvas'),
         canvasWrapper: document.querySelector('.canvas-wrapper'),
         canvasPanel: document.querySelector('.canvas-panel'),
@@ -105,9 +106,9 @@ document.addEventListener('DOMContentLoaded', () => {
             saveCurrentLayout();
         });
 
-        if (els.exportPdf) {
-            els.exportPdf.addEventListener('click', () => {
-                exportCurrentLayoutPdf();
+        if (els.exportButton) {
+            els.exportButton.addEventListener('click', () => {
+                exportCurrentLayout();
             });
         }
 
@@ -582,20 +583,21 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    async function exportCurrentLayoutPdf() {
-        if (!els.exportPdf) return;
-        const button = els.exportPdf;
+    async function exportCurrentLayout() {
+        if (!els.exportButton) return;
+        const button = els.exportButton;
         if (button.disabled) return;
-        const defaultLabel = button.dataset.label || button.textContent || 'Export PDF';
+        const format = (els.exportFormat && els.exportFormat.value) || 'pdf';
+        const defaultLabel = button.dataset.label || button.textContent || 'Download';
         button.dataset.label = defaultLabel;
         button.disabled = true;
-        button.textContent = 'Exporting…';
+        button.textContent = 'Preparing…';
         try {
-            const url = `/api/export/pdf?project=${encodeURIComponent(state.project)}`;
+            const encodedFormat = encodeURIComponent(format);
+            const url = `/api/export/${encodedFormat}?project=${encodeURIComponent(state.project)}`;
             const response = await fetch(url);
-            const contentType = (response.headers.get('content-type') || '').toLowerCase();
-            if (!response.ok || !contentType.includes('application/pdf')) {
-                let message = 'Unable to export PDF';
+            if (!response.ok) {
+                let message = 'Unable to export document';
                 try {
                     const data = await response.json();
                     if (data && data.error) {
@@ -609,19 +611,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
             const blob = await response.blob();
             const digest = response.headers.get('x-layout-digest');
-            const filename = `${state.project || 'layout'}-layout.pdf`;
+            const filename = response.headers.get('x-download-filename') || buildExportFilename(format);
             triggerFileDownload(blob, filename);
-            if (digest) {
-                showToast(`PDF exported • digest ${digest.slice(0, 8)}…`);
-            } else {
-                showToast('PDF exported');
-            }
+            const label = format.toUpperCase();
+            const digestNote = digest ? ` • digest ${digest.slice(0, 8)}…` : '';
+            showToast(`${label} exported${digestNote}`);
         } catch (error) {
             console.error(error);
-            showToast(error.message || 'Unable to export PDF', true);
+            showToast(error.message || 'Unable to export document', true);
         } finally {
             button.disabled = false;
-            button.textContent = button.dataset.label || 'Export PDF';
+            button.textContent = button.dataset.label || 'Download';
         }
     }
 
@@ -759,6 +759,25 @@ document.addEventListener('DOMContentLoaded', () => {
         link.click();
         document.body.removeChild(link);
         setTimeout(() => URL.revokeObjectURL(url), 1000);
+    }
+
+    function buildExportFilename(format) {
+        const base = state.project || 'layout';
+        const normalized = (format || 'pdf').toLowerCase();
+        const extensionMap = {
+            pdf: 'pdf',
+            png: 'png',
+            jpeg: 'jpg',
+            jpg: 'jpg',
+            doc: 'docx',
+            docx: 'docx',
+            word: 'docx',
+            ppt: 'pptx',
+            pptx: 'pptx',
+            powerpoint: 'pptx',
+        };
+        const extension = extensionMap[normalized] || normalized;
+        return `${base}-layout.${extension}`;
     }
 
     function showToast(message, isError = false) {

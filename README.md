@@ -19,8 +19,7 @@ Fiona is a web-based editorial layout studio that allows users to create magazin
 - **Flask**: Python web framework
 - **OpenAI-compatible API**: For connecting to Qwen3-VL-Plus model
 - **ReportLab**: For vector PDF export
-- **PyMuPDF (fitz)**: For snapshot-based PDF export
-- **Pillow**: For image processing and snapshots
+- **Pillow**: For raster exports (PNG/JPEG) and intermediate assets
 
 ### Frontend
 - **Vanilla JavaScript**: No framework dependencies
@@ -67,9 +66,9 @@ Fiona/
    pip install -r requirements.txt
    ```
 
-3. Install additional dependencies for PDF export:
+3. Install additional dependencies for Office export features:
    ```bash
-   pip install reportlab PyMuPDF
+   pip install reportlab python-docx python-pptx
    ```
 
 ### Environment Variables
@@ -116,18 +115,24 @@ The application will be available at `http://localhost:5001`.
 3. Click "Run Agent" to execute the AI assistant
 4. The agent will analyze your layout and make suggestions or modifications
 
-### Exporting to PDF
+### Exporting Layouts
 
-PDF export now happens through a dedicated module (`pdf_export.py`) and an HTTP endpoint:
+Lossless export is powered by `pdf_export.py`, with additional format conversions handled by `export_formats.py`. Every export option renders the PDF first so the output matches what you see on the canvas.
 
-- `render_layout_to_pdf()` turns any layout dictionary into a vector PDF. Pass a project directory via `asset_base` so linked images are embedded at full resolution. The helper returns the raw bytes plus render stats (pages, block counts, layout digest) so you can assert the export was lossless.
-- `GET /api/export/pdf?project=<name>` streams a print-ready PDF for a project. The response includes `X-Layout-Digest`, `X-Blocks-Rendered`, and `X-Blocks-Expected` headers so clients can confirm every block was preserved. Example:
-  ```bash
-  curl -L "http://localhost:5001/api/export/pdf?project=default" \
-    -o default-layout.pdf -D -
-  ```
-  Compare the `X-Layout-Digest` header with a hash of `layout.json` to verify the canvas and PDF are identical.
-  You can also click the **Export PDF** button in the editor toolbar, which downloads the file directly from the same endpoint.
+- `render_layout_to_pdf()` converts a layout dictionary into a vector PDF and returns the bytes plus render stats (page count, block counts, and a layout digest).
+- `export_layout(..., export_format=...)` wraps the PDF renderer and emits PNG, JPEG, DOCX, or PPTX by rasterizing/embedding the generated PDF. PNG/JPEG exports return a ZIP file when multiple pages are present.
+- `GET /api/export/<format>?project=<name>` streams the requested asset. Supported values for `<format>`: `pdf`, `png`, `jpeg`, `docx`, `pptx`. Responses include `X-Layout-Digest`, `X-Blocks-Rendered`, `X-Blocks-Expected`, and `X-Download-Filename` headers for verification.
+
+Example:
+```bash
+curl -L "http://localhost:5001/api/export/png?project=default" \
+  -o default-layout.png -D -
+```
+Compare the digest header with a hash of `layout.json` to confirm the export is identical to the canvas.
+
+The editor toolbar now includes an **Export as** selector plus a **Download** button. Choose PDF/PNG/JPEG/Word/PowerPoint during editing to download the current project instantly (the UI calls the same verified endpoints).
+
+> **Optional Dependencies:** DOCX exports require `python-docx`, and PPTX exports require `python-pptx`. Install them alongside `reportlab` for the full export suite.
 
 ## API Endpoints
 
@@ -143,7 +148,8 @@ PDF export now happens through a dedicated module (`pdf_export.py`) and an HTTP 
 - `POST /api/upload` - Upload images
 
 ### Document Export
-- `GET /api/export/pdf?project=:project` - Render a lossless PDF that mirrors the canvas
+- `GET /api/export?project=:project&format=<fmt>` - Render layouts as `pdf`, `png`, `jpeg`, `docx`, or `pptx`
+- `GET /api/export/<fmt>?project=:project` - Path-based alternative for the same formats
 
 ### AI Assistant
 - `POST /api/agent/run` - Run the AI assistant
@@ -159,8 +165,9 @@ The main components of the application are:
 3. **agent_tools.py**: Tool definitions and layout mutation handlers
 4. **snapshot.py**: Layout snapshot generation for AI context
 5. **pdf_export.py**: PDF export functionality
-6. **static/js/app.js**: Main frontend application logic
-7. **templates/index.html**: Main UI layout and controls
+6. **raster_export.py**: Canvas rasterization helpers for PNG/JPEG/Office exports
+7. **static/js/app.js**: Main frontend application logic
+8. **templates/index.html**: Main UI layout and controls
 
 ### Frontend Architecture
 

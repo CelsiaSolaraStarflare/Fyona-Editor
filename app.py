@@ -9,7 +9,8 @@ from uuid import uuid4
 from flask import Flask, jsonify, render_template, request, send_file, send_from_directory, url_for
 from werkzeug.utils import secure_filename
 
-from pdf_export import PdfExportError, render_layout_to_pdf
+from export_formats import ExportFormatError, export_layout
+from pdf_export import PdfExportError
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
 
@@ -283,25 +284,36 @@ def upload_media():
     return jsonify(response_payload)
 
 
-@app.route("/api/export/pdf", methods=["GET"])
-def export_project_pdf():
+@app.route("/api/export/<string:export_format>", methods=["GET"])
+def export_project(export_format: str):
+    return _stream_project_export(export_format)
+
+
+@app.route("/api/export", methods=["GET"])
+def export_project_default():
+    export_format = request.args.get("format") or "pdf"
+    return _stream_project_export(export_format)
+
+
+def _stream_project_export(export_format: str):
     project = sanitize_project(request.args.get("project") or DEFAULT_PROJECT)
     layout = load_layout(project)
     assets = project_dir(project)
     try:
-        result = render_layout_to_pdf(layout, project_name=project, asset_base=assets, persist=False, verify_lossless=True)
-    except PdfExportError as exc:
+        payload = export_layout(layout, project_name=project, asset_base=assets, export_format=export_format)
+    except (ExportFormatError, PdfExportError) as exc:
         return jsonify({"success": False, "error": str(exc)}), 400
     except Exception:  # pragma: no cover - defensive catch to avoid exposing tracebacks
         return jsonify({"success": False, "error": "Unexpected error during export."}), 500
 
-    buffer = io.BytesIO(result.data)
+    buffer = io.BytesIO(payload.data)
     buffer.seek(0)
-    download_name = f"{project}-layout.pdf"
-    response = send_file(buffer, mimetype="application/pdf", as_attachment=True, download_name=download_name)
-    response.headers["X-Layout-Digest"] = result.digest
-    response.headers["X-Blocks-Rendered"] = str(result.stats.blocks_rendered)
-    response.headers["X-Blocks-Expected"] = str(result.stats.blocks_attempted)
+    response = send_file(buffer, mimetype=payload.mimetype, as_attachment=True, download_name=payload.filename)
+    response.headers["X-Layout-Digest"] = payload.digest
+    response.headers["X-Blocks-Rendered"] = str(payload.stats.blocks_rendered)
+    response.headers["X-Blocks-Expected"] = str(payload.stats.blocks_attempted)
+    response.headers["X-Export-Format"] = payload.meta.get("format", export_format)
+    response.headers["X-Download-Filename"] = payload.filename
     return response
 
 
