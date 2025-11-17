@@ -14,7 +14,7 @@
     {
       "id": "block-b3d44745964b",
       "type": "text",
-      "content": "In the history of China. ",
+      "content": "In the history of China. qwe",
       "position": {
         "left": 194,
         "top": 126,
@@ -46,8 +46,8 @@
       "type": "text",
       "content": "Editable text",
       "position": {
-        "left": 445,
-        "top": 106,
+        "left": 494,
+        "top": 122,
         "width": 260,
         "height": 140
       },
@@ -56,7 +56,7 @@
       "borderRadius": 12,
       "imageUrl": null,
       "typography": {
-        "fontFamily": "inter"
+        "fontFamily": "merriweather"
       }
     }
   ],
