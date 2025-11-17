@@ -1,0 +1,32 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fyona Canvas Editor</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+</head>
+<body>
+    <div class="app">
+        <header class="header">
+            <h1>Fyona Canvas Editor</h1>
+            <div class="toolbar">
+                <button id="add-text">Add Text</button>
+                <button id="add-image">Add Image</button>
+                <button id="save-layout">Save</button>
+                <button id="load-layout">Load</button>
+            </div>
+        </header>
+        
+        <main class="main">
+            <div class="canvas-container">
+                <div class="canvas" id="canvas">
+                    <!-- Blocks will be added here dynamically -->
+                </div>
+            </div>
+        </main>
+    </div>
+    
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>

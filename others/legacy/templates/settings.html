@@ -1,0 +1,96 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fiona Settings</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+</head>
+<body class="settings-page">
+    <div class="settings-container">
+        <header class="settings-header">
+            <h1>Assistant Settings</h1>
+            <a href="/" class="settings-link" title="Back to Canvas">← Back to Canvas</a>
+        </header>
+        <main class="settings-main">
+            <form id="settings-form" class="settings-form" novalidate>
+                <section class="settings-section">
+                    <h2>Provider</h2>
+                    <div class="settings-field">
+                        <label>
+                            <input type="radio" name="mode" value="local" id="mode-local" checked>
+                            Local Ollama model
+                        </label>
+                    </div>
+                    <div class="settings-field">
+                        <label>
+                            <input type="radio" name="mode" value="online" id="mode-online">
+                            Online DashScope model
+                        </label>
+                    </div>
+                </section>
+
+                <section class="settings-section" id="local-settings">
+                    <h2>Local Model</h2>
+                    <label class="settings-field" for="local-model">
+                        Model name
+                        <input type="text" id="local-model" name="local_model" placeholder="qwen3-vl:latest" required>
+                    </label>
+                    <p class="settings-hint">Use any model available to your local Ollama daemon.</p>
+                </section>
+
+                <section class="settings-section" id="online-settings" hidden>
+                    <h2>Online Model</h2>
+                    <label class="settings-field" for="online-model">
+                        Model name
+                        <input type="text" id="online-model" name="online_model" placeholder="qwen3-vl-plus" required>
+                    </label>
+                    <div class="settings-field checkbox">
+                        <input type="checkbox" id="enable-thinking" name="online_enable_thinking">
+                        <label for="enable-thinking">Enable thinking traces (DashScope)</label>
+                    </div>
+                    <label class="settings-field" for="thinking-budget">
+                        Thinking token budget
+                        <input type="number" id="thinking-budget" name="online_thinking_budget" min="0" max="200000" step="1024" value="8192">
+                    </label>
+                    <p class="settings-hint">
+                        Requires a valid <code>DASHSCOPE_API_KEY</code> environment variable.
+                    </p>
+                </section>
+
+                <section class="settings-section">
+                    <h2>Appearance</h2>
+                    <label class="settings-field" for="theme">
+                        Interface theme
+                        <select id="theme" name="theme">
+                            <option value="blue-glass">Blue Glass</option>
+                            <option value="rose-glass">Rose Glass</option>
+                            <option value="amber-glass">Amber Glass</option>
+                            <option value="violet-glass">Violet Glass</option>
+                        </select>
+                    </label>
+                    <fieldset class="settings-field radios">
+                        <legend>Mode</legend>
+                        <label>
+                            <input type="radio" name="theme_mode" value="light" id="theme-mode-light" checked>
+                            Light
+                        </label>
+                        <label>
+                            <input type="radio" name="theme_mode" value="dark" id="theme-mode-dark">
+                            Dark
+                        </label>
+                    </fieldset>
+                    <p class="settings-hint">Choose the glass treatment used across the studio canvas.</p>
+                </section>
+
+                <footer class="settings-footer">
+                    <button type="submit">Save Settings</button>
+                    <span id="settings-status" role="status" aria-live="polite"></span>
+                </footer>
+            </form>
+        </main>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/settings.js') }}" defer></script>
+</body>
+</html>

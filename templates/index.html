@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Fyona Canvas</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+</head>
+<body>
+    <div class="app">
+        <header class="toolbar">
+            <div class="toolbar__group">
+                <label for="project-select">Project</label>
+                <select id="project-select"></select>
+                <button id="refresh-projects" class="btn btn--icon" title="Refresh projects">&#8635;</button>
+            </div>
+            <div class="toolbar__group">
+                <label for="canvas-format">Canvas</label>
+                <select id="canvas-format">
+                    <option value="A5">A5</option>
+                    <option value="A4" selected>A4</option>
+                    <option value="A3">A3</option>
+                    <option value="Letter">Letter</option>
+                </select>
+                <button id="toggle-orientation" class="btn btn--icon" title="Toggle orientation">↺</button>
+                <span id="canvas-size-label" class="toolbar__hint"></span>
+            </div>
+            <div class="toolbar__group">
+                <label for="canvas-zoom">Zoom</label>
+                <div class="zoom-control">
+                    <button id="zoom-out" class="btn btn--icon" type="button" aria-label="Zoom out">−</button>
+                    <input id="canvas-zoom" type="range" min="0.5" max="5" step="0.1" value="1" aria-label="Canvas zoom">
+                    <button id="zoom-in" class="btn btn--icon" type="button" aria-label="Zoom in">+</button>
+                </div>
+                <span id="zoom-label" class="toolbar__hint">100%</span>
+            </div>
+            <div class="toolbar__group">
+                <button id="add-text" class="btn">Add Text</button>
+                <button id="add-image" class="btn">Add Image</button>
+                <button id="save-layout" class="btn btn--primary">Save Layout</button>
+            </div>
+        </header>
+
+        <main class="workspace">
+            <section class="canvas-panel">
+                <div class="canvas-wrapper">
+                    <div id="canvas" class="canvas" aria-label="Canvas"></div>
+                </div>
+            </section>
+
+            <aside class="inspector" aria-label="Inspector" id="inspector-panel">
+                <div id="inspector-shell" class="inspector__shell">
+                    <h2>Block Properties</h2>
+                    <div class="inspector__agent-launch">
+                        <button type="button" id="agent-toggle" class="btn btn--agent">
+                            Agent Mode
+                        </button>
+                    </div>
+                    <div id="inspector-empty" class="inspector__empty">
+                        Select a block to edit its properties.
+                    </div>
+                    <form id="inspector-form" class="inspector__form" hidden>
+                        <div class="field">
+                            <label for="inspector-type">Type</label>
+                            <input id="inspector-type" type="text" readonly>
+                        </div>
+                        <div class="field">
+                            <label for="inspector-content">Content</label>
+                            <textarea id="inspector-content" rows="3"></textarea>
+                        </div>
+                        <div class="field" id="image-options" hidden>
+                            <label>Image Tools</label>
+                            <button type="button" id="upload-image" class="btn btn--secondary">Upload Image</button>
+                        </div>
+                        <div class="field field--row">
+                            <div>
+                                <label for="inspector-left">X</label>
+                                <input id="inspector-left" type="number">
+                            </div>
+                            <div>
+                                <label for="inspector-top">Y</label>
+                                <input id="inspector-top" type="number">
+                            </div>
+                        </div>
+                        <div class="field field--row">
+                            <div>
+                                <label for="inspector-width">Width</label>
+                                <input id="inspector-width" type="number">
+                            </div>
+                            <div>
+                                <label for="inspector-height">Height</label>
+                                <input id="inspector-height" type="number">
+                            </div>
+                        </div>
+                        <div class="field field--row">
+                            <div>
+                                <label for="inspector-bg">Background</label>
+                                <input id="inspector-bg" type="color" value="#ffffff">
+                            </div>
+                            <div>
+                                <label for="inspector-fg">Text</label>
+                                <input id="inspector-fg" type="color" value="#000000">
+                            </div>
+                        </div>
+                        <div class="field">
+                            <label for="inspector-radius">Border Radius</label>
+                            <input id="inspector-radius" type="number" min="0" max="120" value="12">
+                        </div>
+                        <div class="inspector__actions">
+                            <button type="button" id="delete-block" class="btn btn--danger">Delete Block</button>
+                        </div>
+                    </form>
+                </div>
+                <section id="agent-console" class="agent-console" aria-live="polite" hidden>
+                    <header class="agent-panel__header">
+                        <div>
+                            <p class="agent-panel__eyebrow">Autonomous Layout Agent</p>
+                            <h2 id="agent-panel-title">Agent Control Room</h2>
+                        </div>
+                        <button type="button" id="agent-close" class="agent-panel__close" aria-label="Close agent mode">✕</button>
+                    </header>
+                    <div class="agent-panel__body">
+                        <label for="agent-prompt" class="agent-panel__label">Agent Brief</label>
+                        <textarea id="agent-prompt" rows="3" placeholder="Describe how the agent should evolve the layout."></textarea>
+                        <div class="agent-panel__actions">
+                            <button type="button" id="agent-cancel" class="btn btn--secondary" disabled>Cancel Run</button>
+                            <button type="button" id="agent-run" class="btn btn--primary">Run Agent</button>
+                        </div>
+                        <div class="agent-panel__reply">
+                            <p class="agent-panel__label">Latest Reply</p>
+                            <div id="agent-response" class="agent-response" aria-live="polite"></div>
+                        </div>
+                        <div class="agent-panel__history">
+                            <p class="agent-panel__label">Agent Thread</p>
+                            <div id="agent-history" class="agent-history" aria-live="polite"></div>
+                        </div>
+                    </div>
+                </section>
+            </aside>
+        </main>
+    </div>
+
+    <input type="file" id="image-upload" accept="image/*" hidden>
+
+    <template id="toast-template">
+        <div class="toast">
+            <span class="toast__message"></span>
+        </div>
+    </template>
+
+    <script src="https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js" integrity="sha256-OY8YT2vNh+lX6YsJhBKt3vnDnN/SUXOcDSBx/OVCkXw=" crossorigin="anonymous"></script>
+    <script src="{{ url_for('static', filename='js/app.js') }}" defer></script>
+</body>
+</html>

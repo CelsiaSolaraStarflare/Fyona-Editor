@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test All Functions</title>
+</head>
+<body>
+    <h1>Test All Functions</h1>
+    <div id="results"></div>
+    
+    <script>
+        // Function to log results to the page
+        function logResult(message, isSuccess) {
+            const resultsDiv = document.getElementById('results');
+            const p = document.createElement('p');
+            p.textContent = message;
+            p.style.color = isSuccess ? 'green' : 'red';
+            resultsDiv.appendChild(p);
+        }
+        
+        // Test if a function is available
+        function testFunction(name) {
+            if (typeof window[name] === 'function') {
+                logResult(`${name} is available`, true);
+                return true;
+            } else {
+                logResult(`${name} is NOT available`, false);
+                return false;
+            }
+        }
+    </script>
+    
+    <!-- Load the modules in order -->
+    <script src="/static/js/src/utils.js"></script>
+    <script>
+        testFunction('generateUUID');
+        testFunction('formatNumber');
+        testFunction('debounce');
+    </script>
+    
+    <script src="/static/js/src/blocks.js"></script>
+    <script>
+        testFunction('createBlockElement');
+        testFunction('createImageBlock');
+        testFunction('getBlockData');
+        testFunction('updateBlock');
+    </script>
+    
+    <script src="/static/js/src/layout.js"></script>
+    <script>
+        testFunction('serializeLayout');
+        testFunction('applyLayout');
+        testFunction('getDimensionsForFormat');
+    </script>
+    
+    <script src="/static/js/src/export.js"></script>
+    <script>
+        testFunction('showNotification');
+        testFunction('exportLayoutAsJSON');
+        testFunction('exportLayoutAsPDF');
+    </script>
+    
+    <script src="/static/js/app.js"></script>
+    <script>
+        testFunction('createBlock');
+        testFunction('startTextEditing');
+        testFunction('scheduleHistorySnapshot');
+    </script>
+</body>
+</html>

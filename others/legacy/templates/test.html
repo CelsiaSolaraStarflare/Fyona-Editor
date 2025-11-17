@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Test</title>
+</head>
+<body>
+    <h1>Test Page</h1>
+    <button id="test-button">Click me</button>
+    
+    <!-- Modular scripts -->
+    <script src="{{ url_for('static', filename='js/src/utils.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/src/blocks.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/src/layout.js') }}"></script>
+    <script src="{{ url_for('static', filename='js/src/export.js') }}"></script>
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            console.log("Test page loaded");
+            
+            // Test if functions are available
+            if (typeof generateUUID === 'function') {
+                console.log("generateUUID function is available");
+            } else {
+                console.log("generateUUID function is NOT available");
+            }
+            
+            if (typeof createBlockElement === 'function') {
+                console.log("createBlockElement function is available");
+            } else {
+                console.log("createBlockElement function is NOT available");
+            }
+            
+            document.getElementById('test-button').addEventListener('click', function() {
+                console.log("Button clicked");
+                if (typeof generateUUID === 'function') {
+                    console.log("Generated UUID:", generateUUID());
+                }
+            });
+        });
+    </script>
+</body>
+</html>

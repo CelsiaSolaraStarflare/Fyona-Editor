@@ -1,0 +1,13 @@
+{
+  "type": "headline",
+  "position": {
+    "left": 50,
+    "top": 80,
+    "width": 700,
+    "height": 100
+  },
+  "background": "#d8e3f0",
+  "content": "Hello from Fiona!",
+  "id": "block-f3b6f04e59e14b618699590e12f2f6f2",
+  "rawPath": "raw/block-f3b6f04e59e14b618699590e12f2f6f2.json"
+}

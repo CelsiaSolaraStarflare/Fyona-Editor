@@ -1,0 +1,1 @@
+# Static package for Fyona Canvas Editor

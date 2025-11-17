@@ -1,0 +1,33 @@
+{
+  "dimensions": {
+    "width": 800,
+    "height": 1000
+  },
+  "columns": 2,
+  "blocks": [
+    {
+      "type": "headline",
+      "position": {
+        "left": 50,
+        "top": 80,
+        "width": 700,
+        "height": 100
+      },
+      "background": "#d8e3f0",
+      "content": "Hello from Fiona!",
+      "id": "block-f3b6f04e59e14b618699590e12f2f6f2",
+      "rawPath": "raw/block-f3b6f04e59e14b618699590e12f2f6f2.json"
+    },
+    {
+      "type": "image",
+      "position": {
+        "left": 50,
+        "top": 200,
+        "width": 300,
+        "height": 200
+      },
+      "id": "block-2d3628de70354160bf1cccf65f1b6fbe",
+      "rawPath": "raw/block-2d3628de70354160bf1cccf65f1b6fbe.json"
+    }
+  ]
+}
