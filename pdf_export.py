@@ -53,29 +53,24 @@ if REPORTLAB_AVAILABLE:
 else:  # pragma: no cover - only hit when reportlab is missing
     DEFAULT_TEXT_COLOR = None
 TEXT_PADDING = 16.0
-FONT_DIR = (Path(__file__).resolve().parent / "static" / "fonts").resolve()
-CUSTOM_FONT_SPECS = {
-    "inter": ("FyonaInter", "Inter-Regular.ttf"),
-    "space-grotesk": ("FyonaSpaceGrotesk", "SpaceGrotesk-Regular.ttf"),
-    "playfair": ("FyonaPlayfair", "PlayfairDisplay-Regular.ttf"),
-    "merriweather": ("FyonaMerriweather", "Merriweather-Regular.ttf"),
-}
-
 if REPORTLAB_AVAILABLE:
-    CUSTOM_FONT_ALIASES: Dict[str, str] = {}
-    for alias, (font_name, filename) in CUSTOM_FONT_SPECS.items():
-        path = FONT_DIR / filename
-        try:
-            if not path.exists():
-                continue
-            pdfmetrics.registerFont(TTFont(font_name, str(path)))
-            CUSTOM_FONT_ALIASES[alias] = font_name
-        except Exception:
-            continue
     STANDARD_FONTS = {name.lower(): name for name in pdfmetrics.standardFonts}
 else:  # pragma: no cover - used only when reportlab is unavailable
-    CUSTOM_FONT_ALIASES = {}
     STANDARD_FONTS = {}
+PDF_FONT_CACHE: Dict[str, str] = {}
+GENERIC_FONT_ALIASES = {
+    "sans": DEFAULT_FONT,
+    "sans-serif": DEFAULT_FONT,
+    "serif": "Times-Roman",
+    "times": "Times-Roman",
+    "times new roman": "Times-Roman",
+    "georgia": "Times-Roman",
+    "arial": DEFAULT_FONT,
+    "helvetica": DEFAULT_FONT,
+    "mono": "Courier",
+    "monospace": "Courier",
+    "courier": "Courier",
+}
 
 
 class PdfExportError(RuntimeError):
@@ -281,36 +276,34 @@ def _resolve_rect(position: Dict[str, Any], page_height: float) -> Optional[Rect
     return Rect(left, pdf_y, width, height)
 
 
+def _register_pdf_font(font: FontInfo) -> Optional[str]:
+    if not REPORTLAB_AVAILABLE:
+        return None
+    cached = PDF_FONT_CACHE.get(font.id)
+    if cached:
+        return cached
+    font_name = f"FyonaFont_{font.id}"
+    try:
+        pdfmetrics.registerFont(TTFont(font_name, str(font.path)))
+    except Exception:
+        return None
+    PDF_FONT_CACHE[font.id] = font_name
+    return font_name
+
+
 def _map_font_family(value: Any) -> Optional[str]:
     if not isinstance(value, str):
         return None
     key = value.strip().lower()
     if not key:
         return None
-    if key in CUSTOM_FONT_ALIASES:
-        return CUSTOM_FONT_ALIASES[key]
-    alias_map = {
-        "inter": CUSTOM_FONT_ALIASES.get("inter") or DEFAULT_FONT,
-        "space grotesk": CUSTOM_FONT_ALIASES.get("space-grotesk") or DEFAULT_FONT,
-        "space-grotesk": CUSTOM_FONT_ALIASES.get("space-grotesk") or DEFAULT_FONT,
-        "playfair": CUSTOM_FONT_ALIASES.get("playfair") or "Times-Roman",
-        "playfair display": CUSTOM_FONT_ALIASES.get("playfair") or "Times-Roman",
-        "merriweather": CUSTOM_FONT_ALIASES.get("merriweather") or "Times-Roman",
-        "sans": CUSTOM_FONT_ALIASES.get("inter") or DEFAULT_FONT,
-        "sans-serif": CUSTOM_FONT_ALIASES.get("inter") or DEFAULT_FONT,
-        "serif": CUSTOM_FONT_ALIASES.get("merriweather") or "Times-Roman",
-        "times": "Times-Roman",
-        "times new roman": "Times-Roman",
-        "georgia": "Times-Roman",
-        "arial": DEFAULT_FONT,
-        "helvetica": DEFAULT_FONT,
-        "mono": "Courier",
-        "monospace": "Courier",
-        "courier": "Courier",
-    }
-    mapped = alias_map.get(key)
-    if mapped:
-        return mapped
+    font_info = find_font(key)
+    if font_info:
+        registered = _register_pdf_font(font_info)
+        if registered:
+            return registered
+    if key in GENERIC_FONT_ALIASES:
+        return GENERIC_FONT_ALIASES[key]
     return STANDARD_FONTS.get(key)
 
 

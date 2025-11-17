@@ -19,6 +19,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 from urllib.parse import urlparse
 
+from fonts import find_font
 from pdf_export import PdfExportError, PdfRenderResult, PdfRenderStats, render_layout_to_pdf
 from raster_export import RasterPage, rasterize_layout
 
