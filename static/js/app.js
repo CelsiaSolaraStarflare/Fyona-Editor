@@ -14,6 +14,8 @@ document.addEventListener('DOMContentLoaded', () => {
         inspectorForm: document.getElementById('inspector-form'),
         inspectorType: document.getElementById('inspector-type'),
         inspectorContent: document.getElementById('inspector-content'),
+        textOptions: document.getElementById('text-style-options'),
+        inspectorFont: document.getElementById('inspector-font'),
         inspectorLeft: document.getElementById('inspector-left'),
         inspectorTop: document.getElementById('inspector-top'),
         inspectorWidth: document.getElementById('inspector-width'),
@@ -33,6 +35,17 @@ document.addEventListener('DOMContentLoaded', () => {
         zoomOut: document.getElementById('zoom-out'),
         canvasZoom: document.getElementById('canvas-zoom'),
         zoomLabel: document.getElementById('zoom-label'),
+        chatLauncher: document.getElementById('chat-launcher'),
+        chatPanel: document.getElementById('chat-panel'),
+        chatClose: document.getElementById('chat-close'),
+        chatLog: document.getElementById('chat-log'),
+        chatForm: document.getElementById('chat-form'),
+        chatInput: document.getElementById('chat-input'),
+        chatAttachCanvas: document.getElementById('chat-attach-canvas'),
+        chatAttachments: document.getElementById('chat-attachments'),
+        chatStatus: document.getElementById('chat-status'),
+        chatAgentToggle: document.getElementById('chat-agent-toggle'),
+        chatAgentIndicator: document.getElementById('chat-agent-indicator'),
     };
 
     const state = {
@@ -47,7 +60,24 @@ document.addEventListener('DOMContentLoaded', () => {
         orientation: 'portrait',
         pendingImageBlock: null,
         zoom: 1,
+        chat: {
+            open: false,
+            messages: [],
+            pendingAttachments: [],
+            sending: false,
+            agentEnabled: false,
+            agentSnapshot: null,
+        },
     };
+
+    const FONT_OPTIONS = [
+        { value: 'inter', label: 'Inter', css: '"Inter", "Helvetica Neue", Arial, sans-serif' },
+        { value: 'space-grotesk', label: 'Space Grotesk', css: '"Space Grotesk", "Inter", "Helvetica Neue", sans-serif' },
+        { value: 'playfair', label: 'Playfair Display', css: '"Playfair Display", "Times New Roman", serif' },
+        { value: 'merriweather', label: 'Merriweather', css: '"Merriweather", Georgia, serif' },
+    ];
+
+    const DEFAULT_FONT_VALUE = FONT_OPTIONS[0].value;
 
     const CANVAS_PRESETS = {
         A5: { width: 559, height: 794 },
@@ -63,12 +93,18 @@ document.addEventListener('DOMContentLoaded', () => {
     };
 
     let pendingFitFrame = null;
+    let chatAttachmentId = 0;
+    const CHAT_ATTACHMENT_LIMIT = 6;
+    const CHAT_LAYOUT_PREVIEW_LIMIT = 6000;
+    const CHAT_TREE_PREVIEW_LIMIT = 4000;
 
     init();
 
     async function init() {
         configureZoomControl();
+        initFontOptions();
         bindUIEvents();
+        initChatInterface();
         window.addEventListener('resize', scheduleCanvasFit);
         setCanvasZoom(state.zoom);
         await loadProjects();
@@ -81,6 +117,18 @@ document.addEventListener('DOMContentLoaded', () => {
         els.canvasZoom.max = ZOOM_CONFIG.max;
         els.canvasZoom.step = ZOOM_CONFIG.step;
         els.canvasZoom.value = state.zoom;
+    }
+
+    function initFontOptions() {
+        if (!els.inspectorFont) return;
+        els.inspectorFont.innerHTML = '';
+        FONT_OPTIONS.forEach((option) => {
+            const opt = document.createElement('option');
+            opt.value = option.value;
+            opt.textContent = option.label;
+            els.inspectorFont.appendChild(opt);
+        });
+        els.inspectorFont.value = DEFAULT_FONT_VALUE;
     }
 
     function bindUIEvents() {
@@ -131,6 +179,17 @@ document.addEventListener('DOMContentLoaded', () => {
             if (block.type === 'image') return;
             persistBlock(block.id, { content: block.content });
         });
+
+        if (els.inspectorFont) {
+            els.inspectorFont.addEventListener('change', () => {
+                const block = getSelectedBlock();
+                if (!block || block.type === 'image') return;
+                const fontValue = sanitizeFontValue(els.inspectorFont.value);
+                block.typography = { ...(block.typography || {}), fontFamily: fontValue };
+                applyBlockTypography(block);
+                persistBlock(block.id, { typography: { ...block.typography } });
+            });
+        }
 
         bindNumericInput(els.inspectorLeft, 'left');
         bindNumericInput(els.inspectorTop, 'top');
@@ -270,12 +329,18 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function loadLayout(project) {
+        const previousProject = state.project;
         try {
             const response = await fetch(`/api/layout?project=${encodeURIComponent(project)}`);
             if (!response.ok) throw new Error('Failed to fetch layout');
             const layout = await response.json();
 
             state.project = project;
+            if (previousProject !== project && state.chat.agentEnabled) {
+                state.chat.agentEnabled = false;
+                state.chat.agentSnapshot = null;
+                updateAgentToggle();
+            }
             state.layout = layout;
             state.blocks.clear();
             state.blockElements.forEach((el) => el.remove());
@@ -291,6 +356,7 @@ document.addEventListener('DOMContentLoaded', () => {
             deselectBlock();
             applyCanvasMeta(layout);
             updateCanvasSizeLabel();
+            updateChatProjectStatus();
         } catch (error) {
             console.error(error);
             showToast('Unable to load layout', true);
@@ -304,6 +370,10 @@ document.addEventListener('DOMContentLoaded', () => {
     function normalizeBlock(block) {
         const position = block.position || {};
         const id = block.id || generateClientId();
+        const typography = (block.typography && typeof block.typography === 'object')
+            ? { ...block.typography }
+            : {};
+        typography.fontFamily = sanitizeFontValue(typography.fontFamily);
         return {
             id,
             type: block.type || 'text',
@@ -312,6 +382,7 @@ document.addEventListener('DOMContentLoaded', () => {
             textColor: block.textColor ?? '#1c2333',
             borderRadius: typeof block.borderRadius === 'number' ? block.borderRadius : 12,
             imageUrl: block.imageUrl || null,
+            typography,
             position: {
                 left: Math.round(Number(position.left) || 0),
                 top: Math.round(Number(position.top) || 0),
@@ -483,6 +554,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 textColor: '#1c2333',
                 borderRadius: 12,
                 imageUrl: null,
+                typography: { fontFamily: DEFAULT_FONT_VALUE },
             },
         };
 
@@ -702,6 +774,15 @@ document.addEventListener('DOMContentLoaded', () => {
         contentEl.className = 'block__content';
         contentEl.textContent = block.content ?? '';
         wrapper.appendChild(contentEl);
+        applyBlockTypography(block, element);
+    }
+
+    function applyBlockTypography(block, element = state.blockElements.get(block.id)) {
+        if (!element || block.type === 'image') return;
+        const contentEl = element.querySelector('.block__content');
+        if (!contentEl) return;
+        const fontOption = getFontOption(block.typography?.fontFamily);
+        contentEl.style.fontFamily = fontOption.css;
     }
 
     function updateInspector(block) {
@@ -710,6 +791,9 @@ document.addEventListener('DOMContentLoaded', () => {
             els.inspectorEmpty.hidden = false;
             if (els.imageOptions) {
                 els.imageOptions.hidden = true;
+            }
+            if (els.textOptions) {
+                els.textOptions.hidden = true;
             }
             return;
         }
@@ -724,6 +808,15 @@ document.addEventListener('DOMContentLoaded', () => {
         els.inspectorContent.placeholder = isImage ? 'Double-click image block to upload' : 'Edit block content';
         if (els.imageOptions) {
             els.imageOptions.hidden = !isImage;
+        }
+        if (els.textOptions) {
+            els.textOptions.hidden = isImage;
+        }
+        if (els.inspectorFont) {
+            const fontValue = sanitizeFontValue(block.typography?.fontFamily);
+            block.typography = { ...(block.typography || {}), fontFamily: fontValue };
+            els.inspectorFont.value = fontValue;
+            els.inspectorFont.disabled = isImage;
         }
         els.inspectorLeft.value = block.position.left;
         els.inspectorTop.value = block.position.top;
@@ -778,6 +871,28 @@ document.addEventListener('DOMContentLoaded', () => {
         };
         const extension = extensionMap[normalized] || normalized;
         return `${base}-layout.${extension}`;
+    }
+
+    function sanitizeFontValue(value) {
+        if (typeof value === 'string') {
+            const normalized = value.trim().toLowerCase();
+            const match = FONT_OPTIONS.find((option) => option.value === normalized);
+            if (match) {
+                return match.value;
+            }
+        }
+        return DEFAULT_FONT_VALUE;
+    }
+
+    function getFontOption(value) {
+        if (typeof value === 'string') {
+            const normalized = value.trim().toLowerCase();
+            const match = FONT_OPTIONS.find((option) => option.value === normalized);
+            if (match) {
+                return match;
+            }
+        }
+        return FONT_OPTIONS[0];
     }
 
     function showToast(message, isError = false) {
@@ -1002,6 +1117,346 @@ document.addEventListener('DOMContentLoaded', () => {
             console.error(error);
             showToast(error.message || 'Unable to upload image', true);
         }
+    }
+
+    function initChatInterface() {
+        if (!els.chatLauncher || !els.chatPanel) return;
+        if (!state.chat.messages.length) {
+            pushChatMessage({
+                role: 'assistant',
+                content: 'Hi! I can answer layout questions, attach canvas snapshots, or read your files when Agent Mode is on.',
+            });
+        }
+        els.chatLauncher.addEventListener('click', () => toggleChatPanel(!state.chat.open));
+        if (els.chatClose) {
+            els.chatClose.addEventListener('click', () => toggleChatPanel(false));
+        }
+        document.addEventListener('keydown', (event) => {
+            if (event.key === 'Escape' && state.chat.open) {
+                toggleChatPanel(false);
+            }
+        });
+        if (els.chatForm) {
+            els.chatForm.addEventListener('submit', handleChatSubmit);
+        }
+        if (els.chatAttachCanvas) {
+            els.chatAttachCanvas.addEventListener('click', attachCanvasSnapshot);
+        }
+        if (els.chatAgentToggle) {
+            els.chatAgentToggle.addEventListener('click', toggleAgentMode);
+        }
+        setChatStatus('Assistant ready');
+        updateAgentToggle();
+    }
+
+    function toggleChatPanel(forceOpen) {
+        if (!els.chatPanel || !els.chatLauncher) return;
+        const open = typeof forceOpen === 'boolean' ? forceOpen : !state.chat.open;
+        state.chat.open = open;
+        els.chatPanel.classList.toggle('chat-panel--open', open);
+        els.chatPanel.setAttribute('aria-hidden', open ? 'false' : 'true');
+        els.chatLauncher.setAttribute('aria-expanded', open ? 'true' : 'false');
+        if (open) {
+            renderChatMessages();
+            scrollChatLogToBottom();
+        }
+    }
+
+    async function handleChatSubmit(event) {
+        event.preventDefault();
+        if (state.chat.sending) return;
+        const text = (els.chatInput?.value || '').trim();
+        const attachments = state.chat.pendingAttachments.slice();
+        if (!text && attachments.length === 0 && !state.chat.agentEnabled) {
+            showToast('Type a message, attach a PNG, or enable Agent Mode before sending.', true);
+            return;
+        }
+        if (els.chatInput) {
+            els.chatInput.value = '';
+        }
+        const userContent = text || (attachments.length ? 'Shared attachments.' : state.chat.agentEnabled ? 'Shared agent context.' : '…');
+        pushChatMessage({
+            role: 'user',
+            content: userContent,
+            attachments: attachments.map((att) => ({ ...att })),
+        });
+        state.chat.pendingAttachments = [];
+        renderPendingAttachments();
+        await sendMessageToAssistant(text, attachments);
+    }
+
+    async function sendMessageToAssistant(text, attachments) {
+        state.chat.sending = true;
+        setChatStatus('Contacting assistant…');
+        try {
+            const response = await fetch('/api/chat', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    project: state.project,
+                    message: text,
+                    attachments: attachments.map((att) => ({
+                        type: att.type,
+                        label: att.label,
+                        dataUrl: att.dataUrl,
+                        meta: att.meta,
+                    })),
+                    agentMode: state.chat.agentEnabled,
+                    agentSnapshot: state.chat.agentSnapshot,
+                }),
+            });
+            if (!response.ok) {
+                throw new Error((await safeReadText(response)) || 'Assistant request failed.');
+            }
+            const data = await response.json();
+            const replyAttachments = [];
+            if (data.agentSnapshot) {
+                if (!state.chat.agentSnapshot) {
+                    state.chat.agentSnapshot = data.agentSnapshot;
+                }
+                if (data.agentSnapshot.tree) {
+                    replyAttachments.push({
+                        id: `ctx-${Date.now()}`,
+                        type: 'context',
+                        label: 'Project tree',
+                        content: String(data.agentSnapshot.tree).slice(0, CHAT_TREE_PREVIEW_LIMIT),
+                    });
+                }
+                if (data.agentSnapshot.layout) {
+                    const layoutJson = JSON.stringify(data.agentSnapshot.layout, null, 2);
+                    replyAttachments.push({
+                        id: `layout-${Date.now()}`,
+                        type: 'json',
+                        label: 'Layout JSON',
+                        content: layoutJson.slice(0, CHAT_LAYOUT_PREVIEW_LIMIT),
+                    });
+                }
+            }
+            pushChatMessage({
+                role: 'assistant',
+                content: data.reply || 'I received your message.',
+                attachments: replyAttachments,
+            });
+            setChatStatus('Assistant ready');
+        } catch (error) {
+            console.error(error);
+            pushChatMessage({
+                role: 'system',
+                content: error.message || 'Unable to reach the assistant.',
+            });
+            showToast(error.message || 'Assistant unavailable', true);
+            setChatStatus('Assistant unavailable');
+        } finally {
+            state.chat.sending = false;
+        }
+    }
+
+    function pushChatMessage(message) {
+        const payload = {
+            id: `msg-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+            role: message.role || 'assistant',
+            content: message.content || '',
+            attachments: (message.attachments || []).map((att) => ({ ...att })),
+        };
+        state.chat.messages.push(payload);
+        if (state.chat.messages.length > 200) {
+            state.chat.messages = state.chat.messages.slice(-200);
+        }
+        renderChatMessages();
+    }
+
+    function renderChatMessages() {
+        if (!els.chatLog) return;
+        els.chatLog.innerHTML = '';
+        state.chat.messages.forEach((message) => {
+            const wrapper = document.createElement('div');
+            wrapper.className = `chat-message chat-message--${message.role}`;
+            const bubble = document.createElement('div');
+            bubble.className = 'chat-message__bubble';
+            const textEl = document.createElement('div');
+            textEl.className = 'chat-message__text';
+            textEl.textContent = message.content || '';
+            bubble.appendChild(textEl);
+            if (message.attachments && message.attachments.length) {
+                const attachmentsEl = document.createElement('div');
+                attachmentsEl.className = 'chat-message__attachments';
+                message.attachments.forEach((attachment) => {
+                    attachmentsEl.appendChild(renderMessageAttachment(attachment));
+                });
+                bubble.appendChild(attachmentsEl);
+            }
+            wrapper.appendChild(bubble);
+            els.chatLog.appendChild(wrapper);
+        });
+        scrollChatLogToBottom();
+    }
+
+    function renderMessageAttachment(attachment) {
+        const card = document.createElement('div');
+        card.className = 'chat-message__attachment';
+        const label = document.createElement('div');
+        label.className = 'chat-message__attachment-label';
+        label.textContent = attachment.label || attachment.type || 'Attachment';
+        card.appendChild(label);
+        if (attachment.type === 'image' && attachment.dataUrl) {
+            const img = document.createElement('img');
+            img.src = attachment.dataUrl;
+            img.alt = attachment.label || 'Attached image';
+            img.loading = 'lazy';
+            card.appendChild(img);
+        } else if (attachment.content) {
+            const pre = document.createElement('pre');
+            pre.textContent = attachment.content;
+            card.appendChild(pre);
+        }
+        return card;
+    }
+
+    async function attachCanvasSnapshot() {
+        if (state.chat.pendingAttachments.length >= CHAT_ATTACHMENT_LIMIT) {
+            showToast(`Maximum of ${CHAT_ATTACHMENT_LIMIT} attachments per message.`, true);
+            return;
+        }
+        toggleChatPanel(true);
+        setChatStatus('Rendering PNG…');
+        try {
+            const response = await fetch('/api/chat/attachments/canvas', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ project: state.project }),
+            });
+            if (!response.ok) {
+                throw new Error((await safeReadText(response)) || 'Unable to export PNG');
+            }
+            const data = await response.json();
+            const attachment = data.attachment;
+            state.chat.pendingAttachments.push({
+                id: ++chatAttachmentId,
+                type: 'image',
+                label: attachment.label || 'layout.png',
+                dataUrl: attachment.dataUrl,
+                meta: { width: attachment.width, height: attachment.height },
+            });
+            renderPendingAttachments();
+            showToast('Attached current canvas snapshot');
+        } catch (error) {
+            console.error(error);
+            showToast(error.message || 'Unable to capture layout', true);
+        } finally {
+            setChatStatus('Assistant ready');
+        }
+    }
+
+    function renderPendingAttachments() {
+        if (!els.chatAttachments) return;
+        const items = state.chat.pendingAttachments;
+        els.chatAttachments.innerHTML = '';
+        if (!items.length) {
+            els.chatAttachments.hidden = true;
+            return;
+        }
+        els.chatAttachments.hidden = false;
+        items.forEach((attachment) => {
+            const chip = document.createElement('div');
+            chip.className = 'chat-attachment-chip';
+            const label = document.createElement('span');
+            label.textContent = attachment.label || attachment.type;
+            chip.appendChild(label);
+            const remove = document.createElement('button');
+            remove.type = 'button';
+            remove.className = 'chat-attachment-chip__remove';
+            remove.setAttribute('aria-label', 'Remove attachment');
+            remove.textContent = '×';
+            remove.addEventListener('click', () => removePendingAttachment(attachment.id));
+            chip.appendChild(remove);
+            els.chatAttachments.appendChild(chip);
+        });
+    }
+
+    function removePendingAttachment(id) {
+        state.chat.pendingAttachments = state.chat.pendingAttachments.filter((att) => att.id !== id);
+        renderPendingAttachments();
+    }
+
+    async function toggleAgentMode() {
+        if (state.chat.agentEnabled) {
+            state.chat.agentEnabled = false;
+            state.chat.agentSnapshot = null;
+            updateAgentToggle();
+            pushChatMessage({
+                role: 'system',
+                content: 'Agent Mode disabled. I will only use chat messages unless you re-enable it.',
+            });
+            updateChatProjectStatus();
+            return;
+        }
+        toggleChatPanel(true);
+        const button = els.chatAgentToggle;
+        if (button) {
+            button.disabled = true;
+            button.classList.add('is-loading');
+        }
+        setChatStatus('Collecting project tree…');
+        try {
+            const response = await fetch(`/api/chat/agent-snapshot?project=${encodeURIComponent(state.project)}`);
+            if (!response.ok) {
+                throw new Error((await safeReadText(response)) || 'Unable to inspect project structure.');
+            }
+            const data = await response.json();
+            state.chat.agentEnabled = true;
+            state.chat.agentSnapshot = data.snapshot;
+            pushChatMessage({
+                role: 'system',
+                content: 'Agent Mode enabled. The assistant can now inspect the project directory and layout JSON.',
+                attachments: [
+                    {
+                        id: `agent-${Date.now()}`,
+                        type: 'context',
+                        label: 'Project tree',
+                        content: String(data.snapshot?.tree || '').slice(0, CHAT_TREE_PREVIEW_LIMIT),
+                    },
+                ],
+            });
+            setChatStatus('Agent Mode enabled');
+        } catch (error) {
+            console.error(error);
+            showToast(error.message || 'Unable to enable Agent Mode', true);
+            setChatStatus('Assistant unavailable');
+        } finally {
+            if (button) {
+                button.disabled = false;
+                button.classList.remove('is-loading');
+            }
+            updateAgentToggle();
+        }
+    }
+
+    function updateAgentToggle() {
+        if (!els.chatAgentToggle) return;
+        els.chatAgentToggle.classList.toggle('is-active', !!state.chat.agentEnabled);
+        els.chatAgentToggle.textContent = state.chat.agentEnabled ? 'Agent Mode On' : 'Agent Mode Off';
+        if (els.chatAgentIndicator) {
+            els.chatAgentIndicator.hidden = !state.chat.agentEnabled;
+        }
+    }
+
+    function setChatStatus(text) {
+        if (!els.chatStatus) return;
+        els.chatStatus.textContent = text;
+    }
+
+    function updateChatProjectStatus() {
+        if (state.chat.sending) return;
+        setChatStatus(`Ready · Project “${state.project}”`);
+    }
+
+    function scrollChatLogToBottom() {
+        if (!els.chatLog) return;
+        requestAnimationFrame(() => {
+            if (els.chatLog) {
+                els.chatLog.scrollTop = els.chatLog.scrollHeight;
+            }
+        });
     }
 
     async function safeReadText(response) {

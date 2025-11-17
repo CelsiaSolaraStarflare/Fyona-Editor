@@ -1,9 +1,10 @@
+import base64
 import io
 import json
 import re
 from copy import deepcopy
 from pathlib import Path
-from typing import Any, Dict, Iterable, Optional
+from typing import Any, Dict, Iterable, List, Optional, Tuple
 from uuid import uuid4
 
 from flask import Flask, jsonify, render_template, request, send_file, send_from_directory, url_for
@@ -11,6 +12,7 @@ from werkzeug.utils import secure_filename
 
 from export_formats import ExportFormatError, export_layout
 from pdf_export import PdfExportError
+from raster_export import rasterize_layout
 
 app = Flask(__name__, template_folder="templates", static_folder="static")
 
@@ -18,6 +20,9 @@ BASE_DIR = Path(app.root_path)
 PROJECTS_ROOT = BASE_DIR / "projects"
 DEFAULT_PROJECT = "default"
 ASSET_ROUTE = "serve_project_asset"
+CHAT_ATTACHMENT_LIMIT = 6
+MAX_AGENT_FILES = 24
+MAX_AGENT_BYTES = 8_192
 
 PROJECTS_ROOT.mkdir(parents=True, exist_ok=True)
 
@@ -99,8 +104,11 @@ def normalize_block(block: Dict[str, Any]) -> Dict[str, Any]:
         result["borderRadius"] = block["borderRadius"]
     if "imageUrl" in block:
         result["imageUrl"] = block["imageUrl"]
+    typography = block.get("typography")
+    if isinstance(typography, dict):
+        result["typography"] = dict(typography)
 
-    extra_keys = set(block.keys()) - {"id", "type", "content", "position", "backgroundColor", "textColor", "borderRadius", "imageUrl"}
+    extra_keys = set(block.keys()) - {"id", "type", "content", "position", "backgroundColor", "textColor", "borderRadius", "imageUrl", "typography"}
     for key in extra_keys:
         result[key] = block[key]
 
@@ -163,6 +171,112 @@ def _sanitize_block_after_update(block: Dict[str, Any]) -> None:
         "width": int(_coerce_number(position.get("width"), 240)),
         "height": int(_coerce_number(position.get("height"), 120)),
     }
+    typography = block.get("typography")
+    if typography is not None and not isinstance(typography, dict):
+        block.pop("typography", None)
+
+
+def _render_canvas_preview(project: str) -> Dict[str, Any]:
+    layout = load_layout(project)
+    pages = rasterize_layout(layout, asset_base=project_dir(project))
+    if not pages:
+        raise ValueError("No pages were generated for this layout.")
+    first = pages[0]
+    buffer = io.BytesIO()
+    first.image.save(buffer, format="PNG", optimize=True)
+    buffer.seek(0)
+    encoded = base64.b64encode(buffer.read()).decode("ascii")
+    return {
+        "type": "image/png",
+        "label": f"{project}-page-{first.index + 1}.png",
+        "width": first.width,
+        "height": first.height,
+        "dataUrl": f"data:image/png;base64,{encoded}",
+    }
+
+
+def _build_directory_tree(root: Path, *, max_entries: int = 240, max_depth: int = 6) -> Tuple[str, Dict[str, int]]:
+    lines: List[str] = [f"{root.name}/"]
+    stats = {"dirs": 0, "files": 0}
+    entries_seen = 0
+
+    def walk(current: Path, prefix: str = "", depth: int = 0):
+        nonlocal entries_seen
+        if depth >= max_depth:
+            lines.append(f"{prefix}└── …")
+            return
+        children = sorted(current.iterdir(), key=lambda p: (not p.is_dir(), p.name.lower()))
+        for idx, child in enumerate(children):
+            if entries_seen >= max_entries:
+                lines.append(f"{prefix}└── …")
+                return
+            connector = "└── " if idx == len(children) - 1 else "├── "
+            display_name = f"{child.name}/" if child.is_dir() else child.name
+            lines.append(f"{prefix}{connector}{display_name}")
+            entries_seen += 1
+            if child.is_dir():
+                stats["dirs"] += 1
+                extension = "    " if idx == len(children) - 1 else "│   "
+                walk(child, prefix + extension, depth + 1)
+            else:
+                stats["files"] += 1
+
+    walk(root)
+    return "\n".join(lines), stats
+
+
+def _gather_agent_files(root: Path) -> List[Dict[str, Any]]:
+    collected: List[Dict[str, Any]] = []
+    for path in sorted(root.rglob("*")):
+        if not path.is_file():
+            continue
+        rel_path = str(path.relative_to(root))
+        try:
+            size = path.stat().st_size
+        except OSError:
+            continue
+        entry: Dict[str, Any] = {"path": rel_path, "size": size}
+        if path.suffix.lower() in {".json", ".txt", ".md", ".py", ".js", ".css"} or rel_path.endswith(".layout"):
+            try:
+                text = path.read_text(encoding="utf-8", errors="replace")
+            except OSError:
+                text = ""
+            entry["preview"] = text[:MAX_AGENT_BYTES]
+        collected.append(entry)
+        if len(collected) >= MAX_AGENT_FILES:
+            break
+    return collected
+
+
+def _build_project_snapshot(project: str) -> Dict[str, Any]:
+    root = project_dir(project)
+    tree_text, stats = _build_directory_tree(root)
+    layout = load_layout(project)
+    files = _gather_agent_files(root)
+    return {
+        "project": project,
+        "tree": tree_text,
+        "filesIndexed": stats["files"],
+        "directoriesIndexed": stats["dirs"],
+        "files": files,
+        "layout": layout,
+    }
+
+
+def _generate_chat_reply(message: str, attachments: List[Dict[str, Any]], agent_snapshot: Optional[Dict[str, Any]]) -> str:
+    sections: List[str] = []
+    if message:
+        sections.append(f"You said: {message}")
+    if attachments:
+        labels = ", ".join(att.get("label") or att.get("type", "attachment") for att in attachments)
+        sections.append(f"I received {len(attachments)} attachment(s): {labels}.")
+    if agent_snapshot:
+        sections.append(
+            f"I can read {agent_snapshot.get('filesIndexed', 0)} files inside project '{agent_snapshot.get('project')}'."
+        )
+    if not sections:
+        return "Hi! How can I help with your layout?"
+    return " ".join(sections)
 
 
 # ---------------------------------------------------------------------------
@@ -322,6 +436,69 @@ def serve_project_asset(project: str, filename: str):
     project_name = sanitize_project(project)
     directory = media_dir(project_name)
     return send_from_directory(directory, filename)
+
+
+@app.route("/api/chat", methods=["POST"])
+def chat_assistant():
+    payload = request.get_json(silent=True) or {}
+    project = sanitize_project(payload.get("project") or DEFAULT_PROJECT)
+    message = (payload.get("message") or "").strip()
+    attachments_raw = payload.get("attachments") or []
+    agent_mode = bool(payload.get("agentMode"))
+
+    attachments: List[Dict[str, Any]] = []
+    for item in attachments_raw:
+        if not isinstance(item, dict):
+            continue
+        if len(attachments) >= CHAT_ATTACHMENT_LIMIT:
+            break
+        attachments.append(
+            {
+                "type": (item.get("type") or "attachment")[:32],
+                "label": (item.get("label") or "attachment")[:80],
+                "dataUrl": item.get("dataUrl"),
+                "meta": item.get("meta") or {},
+            }
+        )
+
+    agent_snapshot = None
+    client_snapshot = payload.get("agentSnapshot")
+    if agent_mode:
+        if isinstance(client_snapshot, dict):
+            agent_snapshot = client_snapshot
+        else:
+            agent_snapshot = _build_project_snapshot(project)
+    layout = agent_snapshot["layout"] if agent_snapshot else load_layout(project)
+    reply = _generate_chat_reply(message, attachments, agent_snapshot)
+    return jsonify(
+        {
+            "success": True,
+            "reply": reply,
+            "agentSnapshot": agent_snapshot,
+            "summary": {
+                "project": project,
+                "blocks": len(layout.get("blocks", [])),
+            },
+        }
+    )
+
+
+@app.route("/api/chat/attachments/canvas", methods=["POST"])
+def chat_canvas_attachment():
+    payload = request.get_json(silent=True) or {}
+    project = sanitize_project(payload.get("project") or DEFAULT_PROJECT)
+    try:
+        attachment = _render_canvas_preview(project)
+    except Exception as exc:  # pragma: no cover - UI surfacing only
+        return jsonify({"success": False, "error": str(exc)}), 400
+    return jsonify({"success": True, "attachment": attachment})
+
+
+@app.route("/api/chat/agent-snapshot", methods=["GET"])
+def chat_agent_snapshot():
+    project = sanitize_project(request.args.get("project") or DEFAULT_PROJECT)
+    snapshot = _build_project_snapshot(project)
+    return jsonify({"success": True, "snapshot": snapshot})
 
 
 if __name__ == "__main__":

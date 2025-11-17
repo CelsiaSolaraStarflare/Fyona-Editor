@@ -43,6 +43,28 @@ FONT_CANDIDATES = [
     "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
     "/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf",
 ]
+FONT_DIR = (Path(__file__).resolve().parent / "static" / "fonts").resolve()
+FONT_ALIAS_FILES: Dict[str, Path] = {
+    "inter": FONT_DIR / "Inter-Regular.ttf",
+    "space-grotesk": FONT_DIR / "SpaceGrotesk-Regular.ttf",
+    "playfair": FONT_DIR / "PlayfairDisplay-Regular.ttf",
+    "merriweather": FONT_DIR / "Merriweather-Regular.ttf",
+}
+FONT_ALIAS_FALLBACKS = {
+    "space grotesk": "space-grotesk",
+    "playfair display": "playfair",
+    "sans": "inter",
+    "sans-serif": "inter",
+    "serif": "merriweather",
+    "times": "merriweather",
+    "times new roman": "merriweather",
+    "georgia": "merriweather",
+    "arial": "inter",
+    "helvetica": "inter",
+    "mono": "space-grotesk",
+    "monospace": "space-grotesk",
+    "courier": "space-grotesk",
+}
 
 
 def rasterize_layout(
@@ -231,6 +253,24 @@ def _parse_color(raw_color, fallback):
         return fallback
 
 
+def _font_alias_to_path(font_family: Optional[str]) -> Optional[Path]:
+    if not isinstance(font_family, str):
+        return None
+    key = font_family.strip().lower()
+    if not key:
+        return None
+    if key in FONT_ALIAS_FILES:
+        path = FONT_ALIAS_FILES[key]
+        if path.exists():
+            return path
+    alias = FONT_ALIAS_FALLBACKS.get(key)
+    if alias:
+        path = FONT_ALIAS_FILES.get(alias)
+        if path and path.exists():
+            return path
+    return None
+
+
 def _resolve_font(font_family: Optional[str], size: int) -> ImageFont.FreeTypeFont:
     family_key = (font_family or "default").lower()
     cache_key = (family_key, size)
@@ -238,6 +278,9 @@ def _resolve_font(font_family: Optional[str], size: int) -> ImageFont.FreeTypeFo
         return FONT_CACHE[cache_key]
 
     candidates: List[Path] = []
+    alias_candidate = _font_alias_to_path(font_family)
+    if alias_candidate:
+        candidates.append(alias_candidate)
     if font_family:
         normalized = re.sub(r"[^0-9a-zA-Z]+", "", font_family)
         if normalized:

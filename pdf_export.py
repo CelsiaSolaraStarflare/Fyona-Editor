@@ -30,6 +30,8 @@ try:  # Optional dependency – callers should install reportlab.
     from reportlab.lib.enums import TA_CENTER, TA_JUSTIFY, TA_LEFT, TA_RIGHT
     from reportlab.lib.styles import ParagraphStyle
     from reportlab.lib.utils import ImageReader
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
     from reportlab.pdfgen import canvas
     from reportlab.platypus import Paragraph
 except ImportError as exc:  # pragma: no cover - exercised in environments without reportlab
@@ -49,6 +51,29 @@ if REPORTLAB_AVAILABLE:
 else:  # pragma: no cover - only hit when reportlab is missing
     DEFAULT_TEXT_COLOR = None
 TEXT_PADDING = 16.0
+FONT_DIR = (Path(__file__).resolve().parent / "static" / "fonts").resolve()
+CUSTOM_FONT_SPECS = {
+    "inter": ("FyonaInter", "Inter-Regular.ttf"),
+    "space-grotesk": ("FyonaSpaceGrotesk", "SpaceGrotesk-Regular.ttf"),
+    "playfair": ("FyonaPlayfair", "PlayfairDisplay-Regular.ttf"),
+    "merriweather": ("FyonaMerriweather", "Merriweather-Regular.ttf"),
+}
+
+if REPORTLAB_AVAILABLE:
+    CUSTOM_FONT_ALIASES: Dict[str, str] = {}
+    for alias, (font_name, filename) in CUSTOM_FONT_SPECS.items():
+        path = FONT_DIR / filename
+        try:
+            if not path.exists():
+                continue
+            pdfmetrics.registerFont(TTFont(font_name, str(path)))
+            CUSTOM_FONT_ALIASES[alias] = font_name
+        except Exception:
+            continue
+    STANDARD_FONTS = {name.lower(): name for name in pdfmetrics.standardFonts}
+else:  # pragma: no cover - used only when reportlab is unavailable
+    CUSTOM_FONT_ALIASES = {}
+    STANDARD_FONTS = {}
 
 
 class PdfExportError(RuntimeError):
@@ -254,10 +279,43 @@ def _resolve_rect(position: Dict[str, Any], page_height: float) -> Optional[Rect
     return Rect(left, pdf_y, width, height)
 
 
+def _map_font_family(value: Any) -> Optional[str]:
+    if not isinstance(value, str):
+        return None
+    key = value.strip().lower()
+    if not key:
+        return None
+    if key in CUSTOM_FONT_ALIASES:
+        return CUSTOM_FONT_ALIASES[key]
+    alias_map = {
+        "inter": CUSTOM_FONT_ALIASES.get("inter") or DEFAULT_FONT,
+        "space grotesk": CUSTOM_FONT_ALIASES.get("space-grotesk") or DEFAULT_FONT,
+        "space-grotesk": CUSTOM_FONT_ALIASES.get("space-grotesk") or DEFAULT_FONT,
+        "playfair": CUSTOM_FONT_ALIASES.get("playfair") or "Times-Roman",
+        "playfair display": CUSTOM_FONT_ALIASES.get("playfair") or "Times-Roman",
+        "merriweather": CUSTOM_FONT_ALIASES.get("merriweather") or "Times-Roman",
+        "sans": CUSTOM_FONT_ALIASES.get("inter") or DEFAULT_FONT,
+        "sans-serif": CUSTOM_FONT_ALIASES.get("inter") or DEFAULT_FONT,
+        "serif": CUSTOM_FONT_ALIASES.get("merriweather") or "Times-Roman",
+        "times": "Times-Roman",
+        "times new roman": "Times-Roman",
+        "georgia": "Times-Roman",
+        "arial": DEFAULT_FONT,
+        "helvetica": DEFAULT_FONT,
+        "mono": "Courier",
+        "monospace": "Courier",
+        "courier": "Courier",
+    }
+    mapped = alias_map.get(key)
+    if mapped:
+        return mapped
+    return STANDARD_FONTS.get(key)
+
+
 def _resolve_font(block: Dict[str, Any], typography: Dict[str, Any]) -> str:
-    family = typography.get("fontFamily")
-    if isinstance(family, str) and family.strip():
-        return family
+    mapped = _map_font_family(typography.get("fontFamily"))
+    if mapped:
+        return mapped
     block_type = str(block.get("type", "")).lower()
     if block_type in {"headline", "title"}:
         return DEFAULT_FONT_BOLD

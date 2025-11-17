@@ -74,6 +74,10 @@
                             <label for="inspector-content">Content</label>
                             <textarea id="inspector-content" rows="3"></textarea>
                         </div>
+                        <div class="field" id="text-style-options" hidden>
+                            <label for="inspector-font">Font</label>
+                            <select id="inspector-font"></select>
+                        </div>
                         <div class="field" id="image-options" hidden>
                             <label>Image Tools</label>
                             <button type="button" id="upload-image" class="btn btn--secondary">Upload Image</button>
@@ -128,6 +132,38 @@
             <span class="toast__message"></span>
         </div>
     </template>
+
+    <div class="chat-assistant" id="chat-root">
+        <button type="button" id="chat-launcher" class="chat-launcher" aria-haspopup="dialog" aria-controls="chat-panel" aria-expanded="false">
+            <span class="chat-launcher__icon">💬</span>
+            <span class="chat-launcher__label">Ask Fyona</span>
+        </button>
+        <section class="chat-panel" id="chat-panel" aria-hidden="true">
+            <header class="chat-panel__header">
+                <div>
+                    <p class="chat-panel__title">Fyona Assistant</p>
+                    <p class="chat-panel__subtitle" id="chat-status">Assistant ready</p>
+                </div>
+                <div class="chat-panel__header-actions">
+                    <button type="button" class="chat-agent-toggle" id="chat-agent-toggle">Agent Mode Off</button>
+                    <button type="button" class="chat-close" id="chat-close" aria-label="Close assistant">×</button>
+                </div>
+            </header>
+            <div class="chat-agent-indicator" id="chat-agent-indicator" hidden>
+                <strong>Agent Mode enabled</strong>
+                <span>The assistant can inspect your project files.</span>
+            </div>
+            <div class="chat-log" id="chat-log" role="log" aria-live="polite"></div>
+            <div class="chat-panel__attachments" id="chat-attachments" hidden></div>
+            <div class="chat-panel__actions">
+                <button type="button" class="btn btn--secondary" id="chat-attach-canvas">Attach current page as PNG</button>
+            </div>
+            <form class="chat-form" id="chat-form">
+                <textarea id="chat-input" rows="2" placeholder="Ask Fyona anything…"></textarea>
+                <button type="submit" class="btn btn--primary">Send</button>
+            </form>
+        </section>
+    </div>
 
     <script src="{{ url_for('static', filename='js/app.js') }}" defer></script>
 </body>

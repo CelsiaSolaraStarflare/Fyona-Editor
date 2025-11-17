@@ -31,8 +31,8 @@
       "type": "image",
       "content": "Weixin Image_2025-11-16_234718_437.png",
       "position": {
-        "left": 218,
-        "top": 401,
+        "left": 510,
+        "top": 397,
         "width": 313,
         "height": 230
       },
@@ -40,6 +40,24 @@
       "textColor": "#1c2333",
       "borderRadius": 12,
       "imageUrl": "/project-assets/default/Weixin_Image_2025-11-16_234718_437-358aa4b1ad.png"
+    },
+    {
+      "id": "block-1b4f094b8613",
+      "type": "text",
+      "content": "Editable text",
+      "position": {
+        "left": 445,
+        "top": 106,
+        "width": 260,
+        "height": 140
+      },
+      "backgroundColor": "#ffffff",
+      "textColor": "#1c2333",
+      "borderRadius": 12,
+      "imageUrl": null,
+      "typography": {
+        "fontFamily": "inter"
+      }
     }
   ],
   "layers": [
