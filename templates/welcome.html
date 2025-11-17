@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Welcome · Fyona Editor</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/styles.css') }}">
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/welcome.css') }}">
+</head>
+<body class="welcome-body">
+    <div class="welcome-shell">
+        <header class="welcome-hero">
+            <div class="welcome-hero__intro">
+                <p class="welcome-hero__eyebrow">Fyona Editor</p>
+                <h1>Pick up, preview, or start something totally new.</h1>
+                <p class="welcome-hero__subtext">
+                    Review quick capsule previews of everything you have in Fyona,
+                    launch a colorful fresh canvas, or bring in work from your computer.
+                </p>
+            </div>
+            <div class="welcome-hero__cta">
+                <button id="new-project-btn" class="btn btn--primary hero-button" type="button">
+                    New Project
+                </button>
+                <div class="local-import" id="local-import">
+                    <div class="local-import__tab">Open from local</div>
+                    <form id="import-project-form" class="local-import__form">
+                        <label class="field">
+                            <span>Project title</span>
+                            <input type="text" id="import-project-name" name="project_name" placeholder="Magazine Mockup" required maxlength="80">
+                        </label>
+                        <label class="field field--file">
+                            <span>Layout file (.json)</span>
+                            <input type="file" id="import-project-file" name="file" accept=".json,application/json" required>
+                        </label>
+                        <div class="local-import__actions">
+                            <button type="submit" class="btn btn--secondary">Upload & Open</button>
+                            <p id="import-project-status" class="status-text" role="status" aria-live="polite"></p>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </header>
+
+        <section class="projects-section">
+            <div class="projects-section__header">
+                <h2>Project Capsules</h2>
+                <p>See every layout at a glance with miniature cover previews, titles, and created dates.</p>
+            </div>
+            {% if projects %}
+                <div class="projects-grid">
+                    {% for project in projects %}
+                        <article class="project-card">
+                            <div class="project-card__preview">
+                                {% if project.preview and project.preview.url %}
+                                    <img src="{{ project.preview.url }}" alt="Preview of {{ project.name }} layout" loading="lazy">
+                                {% else %}
+                                    <div class="project-card__placeholder">
+                                        <span>No preview</span>
+                                    </div>
+                                {% endif %}
+                            </div>
+                            <div class="project-card__body">
+                                <div>
+                                    <p class="project-card__title">{{ project.name }}</p>
+                                    <time datetime="{{ project.created_iso }}">{{ project.created_label }}</time>
+                                </div>
+                                <a class="project-card__open" href="{{ url_for('index', project=project.name) }}">
+                                    Open
+                                </a>
+                            </div>
+                        </article>
+                    {% endfor %}
+                </div>
+            {% else %}
+                <div class="projects-section__empty">
+                    <p>You do not have any saved projects yet.</p>
+                    <p>Tap <strong>New Project</strong> to create your first canvas, or import a layout JSON from your device.</p>
+                </div>
+            {% endif %}
+        </section>
+    </div>
+
+    <div class="modal" id="new-project-modal" hidden>
+        <div class="modal__dialog" role="dialog" aria-modal="true" aria-labelledby="new-project-title">
+            <button type="button" class="modal__close" id="new-project-close" aria-label="Close new project dialog">×</button>
+            <form id="new-project-form">
+                <h2 id="new-project-title">Create a new project</h2>
+                <p class="modal__hint">Choose a descriptive title and we will open a fresh canvas in the editor.</p>
+                <label class="field">
+                    <span>Project title</span>
+                    <input type="text" id="new-project-name" name="project_name" placeholder="Campaign Concept" required maxlength="80">
+                </label>
+                <p id="new-project-status" class="status-text" role="status" aria-live="polite"></p>
+                <div class="modal__actions">
+                    <button type="button" class="btn" id="new-project-cancel">Cancel</button>
+                    <button type="submit" class="btn btn--primary">Create & Open</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <script src="{{ url_for('static', filename='js/welcome.js') }}" defer></script>
+</body>
+</html>

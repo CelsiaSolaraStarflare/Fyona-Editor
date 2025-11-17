@@ -366,8 +366,9 @@ def _text_padding_for_block(block: Dict[str, Any]) -> float:
 
 def _draw_text_block(pdf: canvas.Canvas, block: Dict[str, Any], rect: Rect, padding: float) -> bool:
     text = _sanitize_text(block.get("content"))
-    if not text:
-        return False
+    if text == "":
+        # Allow empty text blocks – they may just be colored rectangles.
+        return True
 
     typography = block.get("typography") or {}
     if not isinstance(typography, dict):

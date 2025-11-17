@@ -48,8 +48,11 @@ document.addEventListener('DOMContentLoaded', () => {
         chatAgentIndicator: document.getElementById('chat-agent-indicator'),
     };
 
+    const params = new URLSearchParams(window.location.search);
+    const initialProject = (params.get('project') || '').trim() || 'default';
+
     const state = {
-        project: 'default',
+        project: initialProject,
         layout: null,
         blocks: new Map(),
         blockOrder: [],
@@ -315,6 +318,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function populateProjects(projects) {
+        if (!els.projectSelect) return;
         const current = state.project;
         els.projectSelect.innerHTML = '';
         projects.forEach((project) => {
@@ -335,7 +339,17 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!response.ok) throw new Error('Failed to fetch layout');
             const layout = await response.json();
 
-            state.project = project;
+            state.project = layout.project || project;
+            if (els.projectSelect) {
+                const hasOption = Array.from(els.projectSelect.options).some((opt) => opt.value === state.project);
+                if (!hasOption) {
+                    const option = document.createElement('option');
+                    option.value = state.project;
+                    option.textContent = state.project;
+                    els.projectSelect.appendChild(option);
+                }
+                els.projectSelect.value = state.project;
+            }
             if (previousProject !== project && state.chat.agentEnabled) {
                 state.chat.agentEnabled = false;
                 state.chat.agentSnapshot = null;

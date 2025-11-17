@@ -2,7 +2,9 @@ import base64
 import io
 import json
 import re
+import time
 from copy import deepcopy
+from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Iterable, List, Optional, Tuple
 from uuid import uuid4
@@ -63,6 +65,16 @@ def project_dir(name: str) -> Path:
     folder = PROJECTS_ROOT / sanitize_project(name)
     folder.mkdir(parents=True, exist_ok=True)
     return folder
+
+
+def _project_path(name: str) -> Path:
+    return PROJECTS_ROOT / sanitize_project(name)
+
+
+def _list_project_names() -> List[str]:
+    projects = {DEFAULT_PROJECT}
+    projects.update({p.name for p in PROJECTS_ROOT.iterdir() if p.is_dir()})
+    return sorted(projects)
 
 
 def layout_path(name: str) -> Path:
@@ -196,6 +208,57 @@ def _render_canvas_preview(project: str) -> Dict[str, Any]:
     }
 
 
+def _format_timestamp(timestamp: float) -> str:
+    return datetime.fromtimestamp(timestamp).strftime("%b %d, %Y · %I:%M %p")
+
+
+def _project_created_timestamp(folder: Path) -> float:
+    timestamps: List[float] = []
+    layout_file = folder / "layout.json"
+    try:
+        if layout_file.exists():
+            timestamps.append(layout_file.stat().st_ctime)
+    except OSError:
+        pass
+    try:
+        if folder.exists():
+            timestamps.append(folder.stat().st_ctime)
+    except OSError:
+        pass
+    return min(timestamps) if timestamps else time.time()
+
+
+def _project_preview_thumbnail(project: str) -> Optional[Dict[str, Any]]:
+    try:
+        preview = _render_canvas_preview(project)
+    except Exception:
+        return None
+    return {
+        "url": preview.get("dataUrl"),
+        "width": preview.get("width"),
+        "height": preview.get("height"),
+        "label": preview.get("label"),
+    }
+
+
+def _collect_project_cards() -> List[Dict[str, Any]]:
+    cards: List[Dict[str, Any]] = []
+    for project in _list_project_names():
+        folder = _project_path(project)
+        created_ts = _project_created_timestamp(folder)
+        cards.append(
+            {
+                "name": project,
+                "created_ts": created_ts,
+                "created_label": _format_timestamp(created_ts),
+                "created_iso": datetime.fromtimestamp(created_ts).isoformat(),
+                "preview": _project_preview_thumbnail(project),
+            }
+        )
+    cards.sort(key=lambda item: item["created_ts"], reverse=True)
+    return cards
+
+
 def _build_directory_tree(root: Path, *, max_entries: int = 240, max_depth: int = 6) -> Tuple[str, Dict[str, int]]:
     lines: List[str] = [f"{root.name}/"]
     stats = {"dirs": 0, "files": 0}
@@ -288,11 +351,37 @@ def index() -> str:
     return render_template("index.html")
 
 
-@app.route("/api/projects", methods=["GET"])
-def list_projects():
-    projects = {DEFAULT_PROJECT}
-    projects.update({p.name for p in PROJECTS_ROOT.iterdir() if p.is_dir()})
-    return jsonify({"projects": sorted(projects)})
+@app.route("/welcome", methods=["GET"])
+def welcome() -> str:
+    projects = _collect_project_cards()
+    return render_template("welcome.html", projects=projects)
+
+
+@app.route("/api/projects", methods=["GET", "POST"])
+def projects_api():
+    if request.method == "GET":
+        return jsonify({"projects": _list_project_names()})
+
+    payload = request.get_json(silent=True) or {}
+    requested_name = (payload.get("project") or payload.get("name") or "").strip()
+    if not requested_name:
+        return jsonify({"success": False, "error": "project name is required"}), 400
+
+    project = sanitize_project(requested_name)
+    if not project:
+        return jsonify({"success": False, "error": "invalid project name"}), 400
+
+    folder = _project_path(project)
+    layout_file = folder / "layout.json"
+    if layout_file.exists():
+        return jsonify({"success": False, "error": "project already exists"}), 409
+
+    layout_data = payload.get("layout")
+    if not isinstance(layout_data, dict):
+        layout_data = {"blocks": []}
+
+    saved = save_layout(project, layout_data)
+    return jsonify({"success": True, "project": project, "layout": saved})
 
 
 @app.route("/api/layout", methods=["GET", "POST"])
@@ -460,6 +549,40 @@ def serve_font_file(font_id: str):
         return jsonify({"success": False, "error": "font not found"}), 404
     mimetype = "font/ttf" if font.path.suffix.lower() == ".ttf" else "font/otf"
     return send_file(font.path, mimetype=mimetype, conditional=True)
+
+
+@app.route("/api/projects/import", methods=["POST"])
+def import_project():
+    if "file" not in request.files:
+        return jsonify({"success": False, "error": "missing file"}), 400
+
+    upload = request.files["file"]
+    if not upload or upload.filename == "":
+        return jsonify({"success": False, "error": "select a layout file to import"}), 400
+
+    requested_name = (request.form.get("project_name") or Path(upload.filename).stem or "").strip()
+    if not requested_name:
+        return jsonify({"success": False, "error": "project name is required"}), 400
+
+    project = sanitize_project(requested_name)
+    folder = _project_path(project)
+    layout_file = folder / "layout.json"
+    if layout_file.exists():
+        return jsonify({"success": False, "error": "a project with that name already exists"}), 409
+
+    raw_payload = upload.read()
+    try:
+        payload = json.loads(raw_payload.decode("utf-8"))
+    except UnicodeDecodeError:
+        return jsonify({"success": False, "error": "layout file must be UTF-8 encoded JSON"}), 400
+    except json.JSONDecodeError:
+        return jsonify({"success": False, "error": "layout file is not valid JSON"}), 400
+
+    if not isinstance(payload, dict):
+        return jsonify({"success": False, "error": "layout file must contain a JSON object"}), 400
+
+    saved = save_layout(project, payload)
+    return jsonify({"success": True, "project": project, "layout": saved})
 
 
 @app.route("/api/chat", methods=["POST"])

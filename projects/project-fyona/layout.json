@@ -1,0 +1,23 @@
+{
+  "columns": 3,
+  "baseline": 24,
+  "gutter": 32,
+  "snap": true,
+  "zoom": 1.0,
+  "orientation": "portrait",
+  "format": "A4",
+  "dimensions": {
+    "width": 794,
+    "height": 1123
+  },
+  "blocks": [],
+  "layers": [
+    {
+      "id": "layer-main",
+      "name": "Layer 1",
+      "order": 0
+    }
+  ],
+  "activeLayer": "layer-main",
+  "project": "project-fyona"
+}

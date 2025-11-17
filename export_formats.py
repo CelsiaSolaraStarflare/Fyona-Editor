@@ -26,7 +26,7 @@ from raster_export import RasterPage, rasterize_layout
 try:  # Optional dependency for Word exports
     from docx import Document  # type: ignore
     from docx.enum.section import WD_SECTION  # type: ignore
-    from docx.shared import Inches  # type: ignore
+    from docx.shared import Inches, Pt, RGBColor  # type: ignore
     from docx.oxml import OxmlElement  # type: ignore
     from docx.oxml.ns import qn  # type: ignore
 except ImportError as exc:  # pragma: no cover
