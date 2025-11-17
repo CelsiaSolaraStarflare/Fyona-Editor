@@ -111,9 +111,9 @@ The application will be available at `http://localhost:5001`.
 
 ### Using the AI Assistant
 
-1. Click the "Agent Mode" button in the inspector panel
+1. Click the "AI Chat" button in the inspector panel
 2. Enter a prompt describing the changes you'd like
-3. Click "Run Agent" to execute the AI assistant
+3. Click "Send" to execute the AI assistant
 4. The agent will analyze your layout and make suggestions or modifications
 
 ### Exporting to PDF

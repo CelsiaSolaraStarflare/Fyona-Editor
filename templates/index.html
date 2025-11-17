@@ -53,7 +53,7 @@
                     <h2>Block Properties</h2>
                     <div class="inspector__agent-launch">
                         <button type="button" id="agent-toggle" class="btn btn--agent">
-                            Agent Mode
+                            AI Chat
                         </button>
                     </div>
                     <div id="inspector-empty" class="inspector__empty">
@@ -114,25 +114,32 @@
                 <section id="agent-console" class="agent-console" aria-live="polite" hidden>
                     <header class="agent-panel__header">
                         <div>
-                            <p class="agent-panel__eyebrow">Autonomous Layout Agent</p>
-                            <h2 id="agent-panel-title">Agent Control Room</h2>
+                            <p class="agent-panel__eyebrow">Futurist Companion</p>
+                            <h2 id="agent-panel-title">Nova Chat</h2>
                         </div>
                         <button type="button" id="agent-close" class="agent-panel__close" aria-label="Close agent mode">✕</button>
                     </header>
-                    <div class="agent-panel__body">
-                        <label for="agent-prompt" class="agent-panel__label">Agent Brief</label>
-                        <textarea id="agent-prompt" rows="3" placeholder="Describe how the agent should evolve the layout."></textarea>
-                        <div class="agent-panel__actions">
-                            <button type="button" id="agent-cancel" class="btn btn--secondary" disabled>Cancel Run</button>
-                            <button type="button" id="agent-run" class="btn btn--primary">Run Agent</button>
+                    <div class="agent-panel__body agent-panel__body--chat">
+                        <div class="agent-chat-window">
+                            <div class="agent-panel__reply agent-chat-window__status">
+                                <p class="agent-panel__label">Latest Reply</p>
+                                <div id="agent-response" class="agent-response" aria-live="polite"></div>
+                            </div>
+                            <div class="agent-panel__history agent-chat-window__history">
+                                <div class="agent-chat-window__history-header">
+                                    <p class="agent-panel__label">Conversation</p>
+                                    <span class="agent-chat-window__badge">Live Feed</span>
+                                </div>
+                                <div id="agent-history" class="agent-history" aria-live="polite"></div>
+                            </div>
                         </div>
-                        <div class="agent-panel__reply">
-                            <p class="agent-panel__label">Latest Reply</p>
-                            <div id="agent-response" class="agent-response" aria-live="polite"></div>
-                        </div>
-                        <div class="agent-panel__history">
-                            <p class="agent-panel__label">Agent Thread</p>
-                            <div id="agent-history" class="agent-history" aria-live="polite"></div>
+                        <div class="agent-chat-input">
+                            <label for="agent-prompt" class="agent-panel__label">New Prompt</label>
+                            <textarea id="agent-prompt" rows="3" placeholder="Describe the mood, spacing, or storytelling shift you want."></textarea>
+                            <div class="agent-panel__actions agent-panel__actions--chat">
+                                <button type="button" id="agent-cancel" class="btn btn--secondary" disabled>Abort</button>
+                                <button type="button" id="agent-run" class="btn btn--primary">Send</button>
+                            </div>
                         </div>
                     </div>
                 </section>

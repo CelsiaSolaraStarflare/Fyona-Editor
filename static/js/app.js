@@ -251,7 +251,7 @@ document.addEventListener('DOMContentLoaded', () => {
             els.agentCancel.addEventListener('click', () => cancelAgentRun());
         }
         if (els.agentPrompt && !els.agentPrompt.value) {
-            els.agentPrompt.value = 'Study the current layout and refine hierarchy, spacing, and storytelling.';
+            els.agentPrompt.value = 'Guide Nova to craft a futuristic, modern storytelling layout with bold spacing and clarity.';
         }
     }
 
@@ -267,7 +267,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (els.agentResponse && !els.agentResponse.textContent) {
             els.agentResponse.textContent = 'Awaiting agent run…';
         }
-        addAgentMessage({ role: 'system', text: 'Agent mode engaged. Share a brief and run the assistant.' });
+        addAgentMessage({ role: 'system', text: 'Nova Chat engaged. Share a brief and send it into the channel.' });
         scheduleCanvasFit();
     }
 
@@ -294,7 +294,7 @@ document.addEventListener('DOMContentLoaded', () => {
         agentState.running = isRunning;
         if (els.agentRun) {
             els.agentRun.disabled = isRunning;
-            els.agentRun.textContent = isRunning ? 'Running…' : 'Run Agent';
+            els.agentRun.textContent = isRunning ? 'Running…' : 'Send';
         }
         if (els.agentCancel) {
             els.agentCancel.disabled = !isRunning;
