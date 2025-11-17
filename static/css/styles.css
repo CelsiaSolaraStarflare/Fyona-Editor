@@ -237,20 +237,29 @@ select:focus {
 .canvas-wrapper {
     position: relative;
     padding: clamp(12px, 2vw, 32px);
-    width: 100%;
     min-height: 100%;
     display: flex;
     justify-content: center;
     align-items: flex-start;
     overflow: visible;
+    flex: 0 0 auto;
+}
+
+.canvas-stage {
+    position: relative;
+    flex: 0 0 auto;
+    width: calc(var(--canvas-width) * var(--canvas-zoom));
+    height: calc(var(--canvas-height) * var(--canvas-zoom));
 }
 
 .canvas {
-    position: relative;
+    position: absolute;
+    top: 0;
+    left: 0;
     width: var(--canvas-width);
     height: var(--canvas-height);
     transform: scale(var(--canvas-zoom));
-    transform-origin: center center;
+    transform-origin: top left;
     border-radius: 34px;
     border: 1px solid rgba(61, 90, 241, 0.18);
     background:

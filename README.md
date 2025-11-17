@@ -127,6 +127,7 @@ PDF export now happens through a dedicated module (`pdf_export.py`) and an HTTP 
     -o default-layout.pdf -D -
   ```
   Compare the `X-Layout-Digest` header with a hash of `layout.json` to verify the canvas and PDF are identical.
+  You can also click the **Export PDF** button in the editor toolbar, which downloads the file directly from the same endpoint.
 
 ## API Endpoints
 

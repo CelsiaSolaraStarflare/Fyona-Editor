@@ -5,6 +5,7 @@ document.addEventListener('DOMContentLoaded', () => {
         addText: document.getElementById('add-text'),
         addImage: document.getElementById('add-image'),
         saveLayout: document.getElementById('save-layout'),
+        exportPdf: document.getElementById('export-pdf'),
         canvas: document.getElementById('canvas'),
         canvasWrapper: document.querySelector('.canvas-wrapper'),
         canvasPanel: document.querySelector('.canvas-panel'),
@@ -103,6 +104,12 @@ document.addEventListener('DOMContentLoaded', () => {
         els.saveLayout.addEventListener('click', () => {
             saveCurrentLayout();
         });
+
+        if (els.exportPdf) {
+            els.exportPdf.addEventListener('click', () => {
+                exportCurrentLayoutPdf();
+            });
+        }
 
         els.canvas.addEventListener('pointerdown', (e) => {
             if (e.target === els.canvas) {
@@ -575,6 +582,49 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    async function exportCurrentLayoutPdf() {
+        if (!els.exportPdf) return;
+        const button = els.exportPdf;
+        if (button.disabled) return;
+        const defaultLabel = button.dataset.label || button.textContent || 'Export PDF';
+        button.dataset.label = defaultLabel;
+        button.disabled = true;
+        button.textContent = 'Exporting…';
+        try {
+            const url = `/api/export/pdf?project=${encodeURIComponent(state.project)}`;
+            const response = await fetch(url);
+            const contentType = (response.headers.get('content-type') || '').toLowerCase();
+            if (!response.ok || !contentType.includes('application/pdf')) {
+                let message = 'Unable to export PDF';
+                try {
+                    const data = await response.json();
+                    if (data && data.error) {
+                        message = data.error;
+                    }
+                } catch (_) {
+                    // ignored – fallback to default message
+                }
+                throw new Error(message);
+            }
+
+            const blob = await response.blob();
+            const digest = response.headers.get('x-layout-digest');
+            const filename = `${state.project || 'layout'}-layout.pdf`;
+            triggerFileDownload(blob, filename);
+            if (digest) {
+                showToast(`PDF exported • digest ${digest.slice(0, 8)}…`);
+            } else {
+                showToast('PDF exported');
+            }
+        } catch (error) {
+            console.error(error);
+            showToast(error.message || 'Unable to export PDF', true);
+        } finally {
+            button.disabled = false;
+            button.textContent = button.dataset.label || 'Export PDF';
+        }
+    }
+
     function selectBlock(blockId) {
         if (state.selectedId === blockId) return;
         if (state.selectedId) {
@@ -698,6 +748,17 @@ document.addEventListener('DOMContentLoaded', () => {
         const g = Number(match[2]).toString(16).padStart(2, '0');
         const b = Number(match[3]).toString(16).padStart(2, '0');
         return `#${r}${g}${b}`;
+    }
+
+    function triggerFileDownload(blob, filename) {
+        const url = URL.createObjectURL(blob);
+        const link = document.createElement('a');
+        link.href = url;
+        link.download = filename || 'layout.pdf';
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
     }
 
     function showToast(message, isError = false) {
