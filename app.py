@@ -7,12 +7,13 @@ import time
 from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple, TYPE_CHECKING
+from typing import Any, Callable, Dict, Iterable, List, Optional, Tuple, TYPE_CHECKING
 from uuid import uuid4
 
 from flask import Flask, jsonify, render_template, request, send_file, send_from_directory, url_for
 from werkzeug.utils import secure_filename
 
+from agent_tools import AgentToolContext, AgentToolError, AgentToolset
 from export_formats import ExportFormatError, export_layout
 from fonts import get_font, list_fonts
 from pdf_export import PdfExportError
@@ -54,6 +55,7 @@ ASSET_ROUTE = "serve_project_asset"
 CHAT_ATTACHMENT_LIMIT = 6
 MAX_AGENT_FILES = 24
 MAX_AGENT_BYTES = 8_192
+MAX_AGENT_TOOL_CALLS = 8
 DEFAULT_DASHSCOPE_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 DASHSCOPE_BASE_URL = os.getenv("DASHSCOPE_BASE_URL", DEFAULT_DASHSCOPE_BASE_URL)
 DASHSCOPE_API_KEY = os.getenv("DASHSCOPE_API_KEY")
@@ -583,7 +585,9 @@ def _build_qwen_messages(
     ]
 
 
-def _call_qwen_completion(messages: List[Dict[str, Any]]) -> str:
+def _request_qwen_message(
+    messages: List[Dict[str, Any]], *, tools: Optional[List[Dict[str, Any]]] = None
+) -> Optional[Any]:
     client = _get_openai_client()
     payload: Dict[str, Any] = {"model": FIONA_AGENT_MODEL, "messages": messages}
     extra_body: Dict[str, Any] = {}
@@ -593,13 +597,130 @@ def _call_qwen_completion(messages: List[Dict[str, Any]]) -> str:
             extra_body["thinking_budget"] = FIONA_AGENT_THINKING_BUDGET
     if extra_body:
         payload["extra_body"] = extra_body
+    if tools:
+        payload["tools"] = tools
     response = client.chat.completions.create(**payload)
     choice = (response.choices or [None])[0]
-    if not choice or not choice.message:
+    return choice.message if choice else None
+
+
+def _message_content_to_text(content: Any) -> str:
+    if not content:
+        return ""
+    if isinstance(content, list):
+        parts: List[str] = []
+        for entry in content:
+            if hasattr(entry, "model_dump"):
+                entry_data = entry.model_dump()
+            elif isinstance(entry, dict):
+                entry_data = entry
+            else:
+                entry_data = {"type": "text", "text": str(entry)}
+            if entry_data.get("type") == "text" and entry_data.get("text"):
+                parts.append(str(entry_data["text"]))
+        return "\n".join(part for part in parts if part).strip()
+    return str(content).strip()
+
+
+def _serialize_message_content(content: Any) -> Any:
+    if isinstance(content, list):
+        serialized: List[Any] = []
+        for entry in content:
+            if hasattr(entry, "model_dump"):
+                serialized.append(entry.model_dump())
+            elif isinstance(entry, dict):
+                serialized.append(entry)
+            else:
+                serialized.append({"type": "text", "text": str(entry)})
+        return serialized
+    return content or ""
+
+
+def _serialize_tool_calls(raw_calls: Any) -> List[Dict[str, Any]]:
+    calls = raw_calls or []
+    serialized: List[Dict[str, Any]] = []
+    for call in calls:
+        if hasattr(call, "model_dump"):
+            serialized.append(call.model_dump())
+        else:
+            function = getattr(call, "function", None)
+            serialized.append(
+                {
+                    "id": getattr(call, "id", ""),
+                    "type": getattr(call, "type", "function"),
+                    "function": {
+                        "name": getattr(function, "name", ""),
+                        "arguments": getattr(function, "arguments", "{}"),
+                    },
+                }
+            )
+    return serialized
+
+
+def _call_qwen_completion(messages: List[Dict[str, Any]]) -> str:
+    message = _request_qwen_message(messages)
+    if not message:
         return "I could not generate a response. Please try again."
-    content = choice.message.content or ""
-    result = content.strip()
-    return result or "I could not find anything helpful to share. Try rephrasing your request."
+    content = _message_content_to_text(getattr(message, "content", ""))
+    return content or "I could not find anything helpful to share. Try rephrasing your request."
+
+
+def _build_agent_toolset(project: str) -> AgentToolset:
+    def _terminal_factory(layout: Dict[str, Any]) -> TerminalProcessor:
+        return TerminalProcessor(project=project, layout=layout, block_id_factory=_generate_block_id)
+
+    context = AgentToolContext(
+        project=project,
+        load_layout=load_layout,
+        save_layout=save_layout,
+        terminal_factory=_terminal_factory,
+    )
+    return AgentToolset(context)
+
+
+def _run_agent_with_tools(messages: List[Dict[str, Any]], project: str) -> Tuple[str, bool]:
+    toolkit = _build_agent_toolset(project)
+    conversation = list(messages)
+    layout_changed = False
+    for _ in range(MAX_AGENT_TOOL_CALLS):
+        response_message = _request_qwen_message(conversation, tools=toolkit.specs)
+        if not response_message:
+            break
+        payload: Dict[str, Any] = {
+            "role": getattr(response_message, "role", "assistant"),
+            "content": _serialize_message_content(getattr(response_message, "content", "")),
+        }
+        tool_calls = _serialize_tool_calls(getattr(response_message, "tool_calls", None))
+        if tool_calls:
+            payload["tool_calls"] = tool_calls
+        conversation.append(payload)
+        if not tool_calls:
+            final_text = _message_content_to_text(getattr(response_message, "content", ""))
+            if final_text:
+                return final_text, layout_changed
+            continue
+        for call in tool_calls:
+            function = call.get("function") or {}
+            name = function.get("name") or ""
+            arguments = function.get("arguments") or "{}"
+            try:
+                result = toolkit.invoke(name, arguments)
+                tool_output = result.content
+                layout_changed = layout_changed or result.layout_changed
+            except AgentToolError as exc:
+                tool_output = f"Tool error: {exc}"
+            except Exception:  # pragma: no cover - defensive guard
+                app.logger.exception("agent tool invocation failed")
+                tool_output = "Tool error: unexpected failure while running this command."
+            conversation.append(
+                {
+                    "role": "tool",
+                    "tool_call_id": call.get("id") or "",
+                    "name": name,
+                    "content": tool_output,
+                }
+            )
+    return "I reached the tool usage limit before finishing the task. Summarize the remaining work for the user.", layout_changed
 
 
 def _fallback_chat_reply(message: str, attachments: List[Dict[str, Any]], agent_snapshot: Optional[Dict[str, Any]]) -> str:
@@ -619,16 +740,29 @@ def _fallback_chat_reply(message: str, attachments: List[Dict[str, Any]], agent_
     return " ".join(sections)
 
 
-def _generate_chat_reply(message: str, attachments: List[Dict[str, Any]], agent_snapshot: Optional[Dict[str, Any]]) -> str:
+def _generate_chat_reply(
+    message: str,
+    attachments: List[Dict[str, Any]],
+    agent_snapshot: Optional[Dict[str, Any]],
+    *,
+    project: str,
+    allow_tools: bool = False,
+) -> Tuple[str, bool]:
     if not _dashscope_configured():
-        return _fallback_chat_reply(message, attachments, agent_snapshot)
+        return _fallback_chat_reply(message, attachments, agent_snapshot), False
+
+    messages = _build_qwen_messages(message or "", attachments, agent_snapshot)
+    if allow_tools:
+        reply, layout_changed = _run_agent_with_tools(messages, project)
+        return reply, layout_changed
+
     try:
-        messages = _build_qwen_messages(message or "", attachments, agent_snapshot)
-        return _call_qwen_completion(messages)
+        reply = _call_qwen_completion(messages)
+        return reply, False
     except Exception as exc:  # pragma: no cover - network and SDK failures
         app.logger.exception("Qwen chat request failed: {error}".format(error=exc))
         fallback = _fallback_chat_reply(message, attachments, agent_snapshot)
-        return f"{fallback} Assistant error: {exc.__class__.__name__}."
+        return f"{fallback} Assistant error: {exc.__class__.__name__}.", False
 
 
 # ---------------------------------------------------------------------------
@@ -891,6 +1025,8 @@ def chat_assistant():
     message = (payload.get("message") or "").strip()
     attachments_raw = payload.get("attachments") or []
     agent_mode = bool(payload.get("agentMode"))
+    permissions_payload = payload.get("agentPermissions") or {}
+    allow_layout_edits = bool(permissions_payload.get("allowLayoutEdits"))
 
     attachments: List[Dict[str, Any]] = []
     for item in attachments_raw:
@@ -915,7 +1051,17 @@ def chat_assistant():
         else:
             agent_snapshot = _build_project_snapshot(project)
     layout = agent_snapshot["layout"] if agent_snapshot else load_layout(project)
-    reply = _generate_chat_reply(message, attachments, agent_snapshot)
+    allow_tools = agent_mode and allow_layout_edits
+    reply, layout_updated = _generate_chat_reply(
+        message,
+        attachments,
+        agent_snapshot,
+        project=project,
+        allow_tools=allow_tools,
+    )
+    if layout_updated:
+        agent_snapshot = _build_project_snapshot(project)
+        layout = agent_snapshot.get("layout", layout)
     pages = layout.get("pages") or []
     total_blocks = sum(len(page.get("blocks", [])) for page in pages)
     if not total_blocks:
@@ -925,6 +1071,9 @@ def chat_assistant():
             "success": True,
             "reply": reply,
             "agentSnapshot": agent_snapshot,
+            "actions": {
+                "layoutUpdated": layout_updated,
+            },
             "summary": {
                 "project": project,
                 "blocks": total_blocks,

@@ -828,6 +828,21 @@ input:focus {
     font-size: 0.8rem;
 }
 
+.chat-agent-permission {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 0.75rem;
+    font-weight: 500;
+    color: var(--color-muted);
+}
+
+.chat-agent-permission input[type="checkbox"] {
+    width: 16px;
+    height: 16px;
+    cursor: pointer;
+}
+
 .chat-log {
     flex: 1;
     overflow-y: auto;

@@ -49,6 +49,8 @@ document.addEventListener('DOMContentLoaded', () => {
         chatStatus: document.getElementById('chat-status'),
         chatAgentToggle: document.getElementById('chat-agent-toggle'),
         chatAgentIndicator: document.getElementById('chat-agent-indicator'),
+        chatAgentAllowEdits: document.getElementById('chat-agent-allow-edits'),
+        chatAgentPermissionSummary: document.getElementById('chat-agent-permission-summary'),
         chatResizeHandle: document.getElementById('chat-resize-handle'),
     };
 
@@ -76,6 +78,7 @@ document.addEventListener('DOMContentLoaded', () => {
             sending: false,
             agentEnabled: false,
             agentSnapshot: null,
+            agentCanEdit: false,
             panelSize: null,
             resizing: false,
         },
@@ -392,6 +395,7 @@ document.addEventListener('DOMContentLoaded', () => {
             if (previousProject !== project && state.chat.agentEnabled) {
                 state.chat.agentEnabled = false;
                 state.chat.agentSnapshot = null;
+                state.chat.agentCanEdit = false;
                 updateAgentToggle();
             }
             state.layout = { ...layout };
@@ -1518,6 +1522,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (els.chatAgentToggle) {
             els.chatAgentToggle.addEventListener('click', toggleAgentMode);
         }
+        if (els.chatAgentAllowEdits) {
+            els.chatAgentAllowEdits.addEventListener('change', handleAgentPermissionToggle);
+        }
         initChatResizeHandle();
         setChatStatus('Assistant ready');
         updateAgentToggle();
@@ -1693,6 +1700,9 @@ document.addEventListener('DOMContentLoaded', () => {
                     })),
                     agentMode: state.chat.agentEnabled,
                     agentSnapshot: state.chat.agentSnapshot,
+                    agentPermissions: {
+                        allowLayoutEdits: !!state.chat.agentCanEdit,
+                    },
                 }),
             });
             if (!response.ok) {
@@ -1701,9 +1711,7 @@ document.addEventListener('DOMContentLoaded', () => {
             const data = await response.json();
             const replyAttachments = [];
             if (data.agentSnapshot) {
-                if (!state.chat.agentSnapshot) {
-                    state.chat.agentSnapshot = data.agentSnapshot;
-                }
+                state.chat.agentSnapshot = data.agentSnapshot;
                 if (data.agentSnapshot.tree) {
                     replyAttachments.push({
                         id: `ctx-${Date.now()}`,
@@ -1727,6 +1735,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 content: data.reply || 'I received your message.',
                 attachments: replyAttachments,
             });
+            if (data.actions?.layoutUpdated) {
+                await loadLayout(state.project);
+                showToast('Agent updated layout.json');
+            }
             setChatStatus('Assistant ready');
         } catch (error) {
             console.error(error);
@@ -2078,10 +2090,24 @@ document.addEventListener('DOMContentLoaded', () => {
         positionTerminal(rect.left, rect.top);
     }
 
+    function handleAgentPermissionToggle(event) {
+        const checkbox = event.target;
+        if (!checkbox) return;
+        if (!state.chat.agentEnabled) {
+            checkbox.checked = false;
+            showToast('Enable Agent Mode before allowing edits.', true);
+            return;
+        }
+        state.chat.agentCanEdit = !!checkbox.checked;
+        updateAgentPermissionsUI();
+        showToast(state.chat.agentCanEdit ? 'Agent can now edit layout.json.' : 'Agent edits disabled.');
+    }
+
     async function toggleAgentMode() {
         if (state.chat.agentEnabled) {
             state.chat.agentEnabled = false;
             state.chat.agentSnapshot = null;
+            state.chat.agentCanEdit = false;
             updateAgentToggle();
             pushChatMessage({
                 role: 'system',
@@ -2105,9 +2131,10 @@ document.addEventListener('DOMContentLoaded', () => {
             const data = await response.json();
             state.chat.agentEnabled = true;
             state.chat.agentSnapshot = data.snapshot;
+            state.chat.agentCanEdit = false;
             pushChatMessage({
                 role: 'system',
-                content: 'Agent Mode enabled. The assistant can now inspect the project directory and layout JSON.',
+                content: 'Agent Mode enabled. The assistant can now inspect the project directory and layout JSON. Enable “Allow layout edits” when you want the agent to run commands.',
                 attachments: [
                     {
                         id: `agent-${Date.now()}`,
@@ -2118,6 +2145,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 ],
             });
             setChatStatus('Agent Mode enabled');
+            updateAgentPermissionsUI();
         } catch (error) {
             console.error(error);
             showToast(error.message || 'Unable to enable Agent Mode', true);
@@ -2137,6 +2165,23 @@ document.addEventListener('DOMContentLoaded', () => {
         els.chatAgentToggle.textContent = state.chat.agentEnabled ? 'Agent Mode On' : 'Agent Mode Off';
         if (els.chatAgentIndicator) {
             els.chatAgentIndicator.hidden = !state.chat.agentEnabled;
+        }
+        updateAgentPermissionsUI();
+    }
+
+    function updateAgentPermissionsUI() {
+        if (els.chatAgentAllowEdits) {
+            els.chatAgentAllowEdits.disabled = !state.chat.agentEnabled;
+            els.chatAgentAllowEdits.checked = state.chat.agentEnabled && !!state.chat.agentCanEdit;
+        }
+        if (els.chatAgentPermissionSummary) {
+            if (!state.chat.agentEnabled) {
+                els.chatAgentPermissionSummary.textContent = 'Enable Agent Mode to share project structure and layout.';
+            } else if (state.chat.agentCanEdit) {
+                els.chatAgentPermissionSummary.textContent = 'Fyona can now read files and run layout-editing commands.';
+            } else {
+                els.chatAgentPermissionSummary.textContent = 'Fyona has read-only access until you allow layout edits.';
+            }
         }
     }
 

@@ -163,7 +163,11 @@
             </header>
             <div class="chat-agent-indicator" id="chat-agent-indicator" hidden>
                 <strong>Agent Mode enabled</strong>
-                <span>The assistant can inspect your project files.</span>
+                <span id="chat-agent-permission-summary">The assistant can inspect your project files.</span>
+                <label class="chat-agent-permission">
+                    <input type="checkbox" id="chat-agent-allow-edits">
+                    Allow layout edits
+                </label>
             </div>
             <div class="chat-log" id="chat-log" role="log" aria-live="polite"></div>
             <div class="chat-panel__attachments" id="chat-attachments" hidden></div>

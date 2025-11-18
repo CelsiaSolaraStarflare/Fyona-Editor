@@ -3,7 +3,7 @@
   "baseline": 24,
   "gutter": 24,
   "snap": true,
-  "zoom": 1,
+  "zoom": 1.0,
   "orientation": "portrait",
   "format": "A4",
   "dimensions": {
@@ -12,21 +12,47 @@
   },
   "blocks": [
     {
-      "id": "block-d6c32cf10053",
+      "id": "block-masthead",
       "type": "text",
-      "content": "Copy",
+      "content": "Fyona Magazine",
       "position": {
-        "left": 134,
-        "top": 25,
-        "width": 240,
-        "height": 120
+        "left": 48,
+        "top": 47,
+        "width": 698,
+        "height": 80
       },
-      "backgroundColor": "#ffffff",
-      "textColor": "#1c2333",
+      "backgroundColor": "#000000",
+      "textColor": "#f8fafc",
       "borderRadius": 12,
       "imageUrl": null,
       "typography": {
-        "fontFamily": "inter"
+        "fontFamily": "inter",
+        "fontSize": 64,
+        "fontWeight": 800,
+        "letterSpacing": 0.08,
+        "lineHeight": 1.05
+      }
+    },
+    {
+      "id": "block-subtitle",
+      "type": "text",
+      "content": "Designing the Future of Editorial Systems",
+      "position": {
+        "left": 48,
+        "top": 136,
+        "width": 700,
+        "height": 161
+      },
+      "backgroundColor": "#000000",
+      "textColor": "#cbd5f5",
+      "borderRadius": 12,
+      "imageUrl": null,
+      "typography": {
+        "fontFamily": "inter",
+        "fontSize": 13,
+        "fontWeight": 400,
+        "letterSpacing": 0,
+        "lineHeight": 1.5
       }
     }
   ],
@@ -37,21 +63,47 @@
       "order": 0,
       "blocks": [
         {
-          "id": "block-d6c32cf10053",
+          "id": "block-masthead",
           "type": "text",
-          "content": "Copy",
+          "content": "Fyona Magazine",
           "position": {
-            "left": 134,
-            "top": 25,
-            "width": 240,
-            "height": 120
+            "left": 48,
+            "top": 47,
+            "width": 698,
+            "height": 80
           },
-          "backgroundColor": "#ffffff",
-          "textColor": "#1c2333",
+          "backgroundColor": "#000000",
+          "textColor": "#f8fafc",
           "borderRadius": 12,
           "imageUrl": null,
           "typography": {
-            "fontFamily": "inter"
+            "fontFamily": "inter",
+            "fontSize": 64,
+            "fontWeight": 800,
+            "letterSpacing": 0.08,
+            "lineHeight": 1.05
+          }
+        },
+        {
+          "id": "block-subtitle",
+          "type": "text",
+          "content": "Designing the Future of Editorial Systems",
+          "position": {
+            "left": 48,
+            "top": 136,
+            "width": 700,
+            "height": 161
+          },
+          "backgroundColor": "#000000",
+          "textColor": "#cbd5f5",
+          "borderRadius": 12,
+          "imageUrl": null,
+          "typography": {
+            "fontFamily": "inter",
+            "fontSize": 13,
+            "fontWeight": 400,
+            "letterSpacing": 0,
+            "lineHeight": 1.5
           }
         }
       ],
@@ -183,6 +235,7 @@
         "letterSpacing": 0.04,
         "lineHeight": 1.2
       }
-    }
+    },
+    "zoom": 1
   }
 }

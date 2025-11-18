@@ -103,6 +103,8 @@ Fyona uses Alibaba's DashScope service via the OpenAI-compatible API to power th
 - The JSON layout definition and block metadata
 - A tree plus selected file previews from the active project directory
 
+If you additionally allow layout edits, Fyona exposes tools for reading/writing `layout.json` and for running the built-in terminal commands. The assistant will call these tools repeatedly until it reports that the task is finished or it exhausts the safety budget, letting it implement multi-step changes automatically.
+
 The assistant responds in Markdown with layout-specific recommendations. If the DashScope credentials or the `openai` package are missing, the UI will fall back to a lightweight acknowledgement so you always know what the server received.
 
 ### Running the Application
@@ -135,6 +137,7 @@ The application will be available at `http://localhost:5001`.
 2. Enter a prompt describing the changes you'd like
 3. Click "Run Agent" to execute the AI assistant
 4. The agent will analyze your layout and make suggestions or modifications
+5. When Agent Mode is enabled you can toggle **Allow layout edits** inside the chat panel. Turning it on lets Fyona call built-in tools to read or overwrite `layout.json`, or to run structured terminal commands until the task is complete.
 
 ### Exporting Layouts
 
