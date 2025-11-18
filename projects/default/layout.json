@@ -78,15 +78,21 @@
       }
     },
     {
-      "id": "page-b29c7f17",
-      "name": "Page 3",
+      "id": "page-61c2d0cc",
+      "name": "Page 2",
       "order": 1,
       "blocks": []
     },
     {
-      "id": "page-d27465dd",
-      "name": "Page 2",
+      "id": "page-b29c7f17",
+      "name": "Page 3",
       "order": 2,
+      "blocks": []
+    },
+    {
+      "id": "page-d27465dd",
+      "name": "Page 4",
+      "order": 3,
       "blocks": []
     }
   ],
@@ -98,6 +104,6 @@
     }
   ],
   "activeLayer": "layer-main",
-  "activePageId": "page-b29c7f17",
+  "activePageId": "page-61c2d0cc",
   "project": "default"
 }

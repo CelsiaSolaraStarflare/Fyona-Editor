@@ -108,6 +108,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const PAGE_THUMB_BLOCK_LIMIT = 4;
     const LAYOUT_SYNC_DELAY = 600;
     let layoutSyncTimeout = null;
+    const AUTO_PAGE_NAME_PATTERN = /^page\s+\d+$/i;
     const hydratedPages = new Set();
 
     init();
@@ -523,6 +524,10 @@ document.addEventListener('DOMContentLoaded', () => {
         state.pages.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
         state.pages.forEach((page, index) => {
             page.order = index;
+            const expectedName = `Page ${index + 1}`;
+            if (!page.name || AUTO_PAGE_NAME_PATTERN.test(page.name)) {
+                page.name = expectedName;
+            }
         });
     }
 
@@ -622,7 +627,7 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function createPageAtIndex(index) {
         const safeIndex = Math.max(0, Math.min(typeof index === 'number' ? index : 0, state.pages.length));
-        const label = `Page ${state.pages.length + 1}`;
+        const label = `Page ${safeIndex + 1}`;
         const newPage = {
             id: generatePageId(),
             name: label,
