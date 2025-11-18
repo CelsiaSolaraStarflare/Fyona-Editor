@@ -49,6 +49,7 @@ document.addEventListener('DOMContentLoaded', () => {
         chatStatus: document.getElementById('chat-status'),
         chatAgentToggle: document.getElementById('chat-agent-toggle'),
         chatAgentIndicator: document.getElementById('chat-agent-indicator'),
+        chatResizeHandle: document.getElementById('chat-resize-handle'),
     };
 
     const params = new URLSearchParams(window.location.search);
@@ -75,6 +76,17 @@ document.addEventListener('DOMContentLoaded', () => {
             sending: false,
             agentEnabled: false,
             agentSnapshot: null,
+            panelSize: null,
+            resizing: false,
+        },
+        terminal: {
+            element: null,
+            log: null,
+            input: null,
+            dragging: false,
+            dragOffsetX: 0,
+            dragOffsetY: 0,
+            isOpen: false,
         },
     };
 
@@ -107,9 +119,21 @@ document.addEventListener('DOMContentLoaded', () => {
     const CHAT_TREE_PREVIEW_LIMIT = 4000;
     const PAGE_THUMB_BLOCK_LIMIT = 4;
     const LAYOUT_SYNC_DELAY = 600;
+    const CHAT_PANEL_MIN_WIDTH = 300;
+    const CHAT_PANEL_MAX_WIDTH = 640;
+    const CHAT_PANEL_MIN_HEIGHT = 300;
+    const CHAT_PANEL_MAX_HEIGHT = 640;
     let layoutSyncTimeout = null;
     const AUTO_PAGE_NAME_PATTERN = /^page\s+\d+$/i;
     const hydratedPages = new Set();
+    const chatResizeSession = {
+        active: false,
+        pointerId: null,
+        startX: 0,
+        startY: 0,
+        startWidth: 0,
+        startHeight: 0,
+    };
 
     init();
 
@@ -118,7 +142,10 @@ document.addEventListener('DOMContentLoaded', () => {
         initFontOptions();
         bindUIEvents();
         initChatInterface();
-        window.addEventListener('resize', scheduleCanvasFit);
+        window.addEventListener('resize', () => {
+            scheduleCanvasFit();
+            constrainTerminalToViewport();
+        });
         setCanvasZoom(state.zoom);
         await loadProjects();
         await loadLayout(state.project);
@@ -1510,6 +1537,19 @@ document.addEventListener('DOMContentLoaded', () => {
         event.preventDefault();
         if (state.chat.sending) return;
         const text = (els.chatInput?.value || '').trim();
+        if (text.toLowerCase() === '/terminal') {
+            if (els.chatInput) {
+                els.chatInput.value = '';
+            }
+            state.chat.pendingAttachments = [];
+            renderPendingAttachments();
+            openFloatingTerminal();
+            pushChatMessage({
+                role: 'system',
+                content: 'Opened the floating terminal window. Drag it anywhere on the canvas and close it when finished.',
+            });
+            return;
+        }
         const attachments = state.chat.pendingAttachments.slice();
         if (!text && attachments.length === 0 && !state.chat.agentEnabled) {
             showToast('Type a message, attach a PNG, or enable Agent Mode before sending.', true);
@@ -1720,6 +1760,156 @@ document.addEventListener('DOMContentLoaded', () => {
     function removePendingAttachment(id) {
         state.chat.pendingAttachments = state.chat.pendingAttachments.filter((att) => att.id !== id);
         renderPendingAttachments();
+    }
+
+    function openFloatingTerminal() {
+        const terminal = ensureTerminalWindow();
+        if (!terminal) return;
+        terminal.classList.add('floating-terminal--visible');
+        state.terminal.isOpen = true;
+        constrainTerminalToViewport();
+        if (state.terminal.input) {
+            state.terminal.input.focus();
+            state.terminal.input.select();
+        }
+    }
+
+    function closeFloatingTerminal() {
+        if (!state.terminal.element) return;
+        state.terminal.element.classList.remove('floating-terminal--visible');
+        state.terminal.isOpen = false;
+    }
+
+    function ensureTerminalWindow() {
+        if (state.terminal.element) return state.terminal.element;
+        const container = document.createElement('section');
+        container.className = 'floating-terminal';
+        container.setAttribute('role', 'dialog');
+        container.setAttribute('aria-label', 'Fyona terminal');
+        container.style.left = '72px';
+        container.style.top = '120px';
+
+        const header = document.createElement('div');
+        header.className = 'floating-terminal__header';
+
+        const traffic = document.createElement('div');
+        traffic.className = 'floating-terminal__traffic';
+        const closeBtn = document.createElement('button');
+        closeBtn.type = 'button';
+        closeBtn.className = 'floating-terminal__dot floating-terminal__dot--close';
+        closeBtn.setAttribute('aria-label', 'Close terminal');
+        closeBtn.addEventListener('click', closeFloatingTerminal);
+        traffic.appendChild(closeBtn);
+        const minimize = document.createElement('span');
+        minimize.className = 'floating-terminal__dot floating-terminal__dot--min';
+        traffic.appendChild(minimize);
+        const expand = document.createElement('span');
+        expand.className = 'floating-terminal__dot floating-terminal__dot--max';
+        traffic.appendChild(expand);
+        header.appendChild(traffic);
+
+        const title = document.createElement('div');
+        title.className = 'floating-terminal__title';
+        title.textContent = 'Fyona Terminal';
+        header.appendChild(title);
+
+        header.addEventListener('pointerdown', handleTerminalDragStart);
+
+        const body = document.createElement('div');
+        body.className = 'floating-terminal__body';
+
+        const log = document.createElement('div');
+        log.className = 'floating-terminal__log';
+        body.appendChild(log);
+
+        const promptForm = document.createElement('form');
+        promptForm.className = 'floating-terminal__prompt';
+        const caret = document.createElement('span');
+        caret.className = 'floating-terminal__caret';
+        caret.textContent = '$';
+        promptForm.appendChild(caret);
+        const input = document.createElement('input');
+        input.type = 'text';
+        input.placeholder = 'Type a command…';
+        input.autocomplete = 'off';
+        input.spellcheck = false;
+        promptForm.appendChild(input);
+        promptForm.addEventListener('submit', (event) => {
+            event.preventDefault();
+            const value = input.value.trim();
+            if (!value) return;
+            appendTerminalLine(`$ ${value}`, 'input');
+            appendTerminalLine('Command output placeholder — wire this up when ready.', 'muted');
+            input.value = '';
+        });
+        body.appendChild(promptForm);
+
+        container.appendChild(header);
+        container.appendChild(body);
+        document.body.appendChild(container);
+
+        state.terminal.element = container;
+        state.terminal.log = log;
+        state.terminal.input = input;
+
+        appendTerminalLine('Fyona terminal ready.', 'muted');
+        appendTerminalLine('Commands will run line-by-line once connected.', 'muted');
+        return container;
+    }
+
+    function appendTerminalLine(text, variant = 'output') {
+        if (!state.terminal.log) return;
+        const line = document.createElement('div');
+        line.className = `floating-terminal__line floating-terminal__line--${variant}`;
+        line.textContent = text;
+        state.terminal.log.appendChild(line);
+        state.terminal.log.scrollTop = state.terminal.log.scrollHeight;
+    }
+
+    function handleTerminalDragStart(event) {
+        if (!state.terminal.element) return;
+        if (event.target.closest('button')) return;
+        if (event.pointerType === 'mouse' && event.button !== 0) return;
+        event.preventDefault();
+        state.terminal.dragging = true;
+        state.terminal.dragOffsetX = event.clientX - state.terminal.element.offsetLeft;
+        state.terminal.dragOffsetY = event.clientY - state.terminal.element.offsetTop;
+        state.terminal.element.classList.add('floating-terminal--dragging');
+        window.addEventListener('pointermove', handleTerminalDragMove);
+        window.addEventListener('pointerup', handleTerminalDragEnd);
+    }
+
+    function handleTerminalDragMove(event) {
+        if (!state.terminal.dragging || !state.terminal.element) return;
+        event.preventDefault();
+        positionTerminal(event.clientX - state.terminal.dragOffsetX, event.clientY - state.terminal.dragOffsetY);
+    }
+
+    function handleTerminalDragEnd() {
+        if (!state.terminal.dragging) return;
+        state.terminal.dragging = false;
+        if (state.terminal.element) {
+            state.terminal.element.classList.remove('floating-terminal--dragging');
+        }
+        window.removeEventListener('pointermove', handleTerminalDragMove);
+        window.removeEventListener('pointerup', handleTerminalDragEnd);
+    }
+
+    function positionTerminal(left, top) {
+        if (!state.terminal.element) return;
+        const margin = 12;
+        const maxLeft = window.innerWidth - state.terminal.element.offsetWidth - margin;
+        const maxTop = window.innerHeight - state.terminal.element.offsetHeight - margin;
+        const clampedLeft = Math.min(Math.max(margin, left), Math.max(margin, maxLeft));
+        const clampedTop = Math.min(Math.max(margin, top), Math.max(margin, maxTop));
+        state.terminal.element.style.left = `${clampedLeft}px`;
+        state.terminal.element.style.top = `${clampedTop}px`;
+    }
+
+    function constrainTerminalToViewport() {
+        if (!state.terminal.element || !state.terminal.isOpen) return;
+        const rect = state.terminal.element.getBoundingClientRect();
+        positionTerminal(rect.left, rect.top);
     }
 
     async function toggleAgentMode() {

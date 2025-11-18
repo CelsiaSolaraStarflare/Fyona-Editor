@@ -10,7 +10,62 @@
     "height": 1123,
     "width": 794
   },
-  "blocks": [],
+  "blocks": [
+    {
+      "id": "block-b3d44745964b",
+      "type": "text",
+      "content": "",
+      "position": {
+        "left": 36,
+        "top": 37,
+        "width": 351,
+        "height": 101
+      },
+      "backgroundColor": "#ffffff",
+      "textColor": "#1c2333",
+      "borderRadius": 12,
+      "imageUrl": null,
+      "typography": {
+        "fontFamily": "merriweather"
+      }
+    },
+    {
+      "id": "block-1b4f094b8613",
+      "type": "text",
+      "content": "Editable text",
+      "position": {
+        "left": 46,
+        "top": 161,
+        "width": 260,
+        "height": 140
+      },
+      "backgroundColor": "#ffffff",
+      "textColor": "#1c2333",
+      "borderRadius": 12,
+      "imageUrl": null,
+      "typography": {
+        "fontFamily": "inter"
+      }
+    },
+    {
+      "id": "block-a3c4b6bfb422",
+      "type": "image",
+      "content": "88888339.jpeg",
+      "position": {
+        "left": 406,
+        "top": 47,
+        "width": 260,
+        "height": 180
+      },
+      "backgroundColor": "#ffffff",
+      "textColor": "#1c2333",
+      "borderRadius": 12,
+      "imageUrl": "/project-assets/default/88888339-26719b329f.jpeg",
+      "typography": {
+        "fontFamily": "inter"
+      }
+    }
+  ],
   "pages": [
     {
       "id": "page-37c9651d1c6f",
@@ -104,6 +159,6 @@
     }
   ],
   "activeLayer": "layer-main",
-  "activePageId": "page-61c2d0cc",
+  "activePageId": "page-37c9651d1c6f",
   "project": "default"
 }

@@ -71,18 +71,39 @@ Fiona/
    pip install reportlab python-docx python-pptx
    ```
 
+4. Install the OpenAI Python SDK so the Qwen-compatible client can run:
+   ```bash
+   pip install "openai>=1.12"
+   ```
+
 ### Environment Variables
 
 Fiona uses the following environment variables:
 
 - `DASHSCOPE_API_KEY`: API key for DashScope (required for AI features)
 - `DASHSCOPE_BASE_URL`: Base URL for DashScope API (optional, defaults to official endpoint)
-- `FIONA_AGENT_MODEL`: Model to use for AI assistant (optional, defaults to qvq-plus)
+- `FIONA_AGENT_MODEL`: Model to use for AI assistant (optional, defaults to `qwen3-vl-plus`)
+- `FIONA_AGENT_ENABLE_THINKING`: Set to `true` to enable Qwen's reasoning trace (optional, defaults to `false`)
+- `FIONA_AGENT_THINKING_BUDGET`: Max reasoning tokens when thinking mode is enabled (optional, defaults to `81920`)
 
 You can set these in a `.env` file in the project root:
 ```bash
 DASHSCOPE_API_KEY=your_api_key_here
+DASHSCOPE_BASE_URL=https://dashscope.aliyuncs.com/compatible-mode/v1
+FIONA_AGENT_MODEL=qwen3-vl-plus
 ```
+The server automatically loads `.env` on startup, so you can keep secrets locally without exporting them in your shell.
+
+### Qwen Integration
+
+Fyona uses Alibaba's DashScope service via the OpenAI-compatible API to power the chat assistant. When you enable **Agent Mode** the backend automatically collects the project directory tree, indexed file previews, and the latest `layout.json`, then attaches them alongside any canvas snapshots you share in chat. The `qwen3-vl-plus` model can therefore inspect:
+
+- Your typed prompt
+- A PNG capture of the current canvas
+- The JSON layout definition and block metadata
+- A tree plus selected file previews from the active project directory
+
+The assistant responds in Markdown with layout-specific recommendations. If the DashScope credentials or the `openai` package are missing, the UI will fall back to a lightweight acknowledgement so you always know what the server received.
 
 ### Running the Application
 

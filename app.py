@@ -1,12 +1,13 @@
 import base64
 import io
 import json
+import os
 import re
 import time
 from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, Iterable, List, Optional, Tuple
+from typing import Any, Dict, Iterable, List, Optional, Tuple, TYPE_CHECKING
 from uuid import uuid4
 
 from flask import Flask, jsonify, render_template, request, send_file, send_from_directory, url_for
@@ -17,15 +18,62 @@ from fonts import get_font, list_fonts
 from pdf_export import PdfExportError
 from raster_export import rasterize_layout
 
+if TYPE_CHECKING:  # pragma: no cover
+    from openai import OpenAI
+
 app = Flask(__name__, template_folder="templates", static_folder="static")
 
 BASE_DIR = Path(app.root_path)
+ENV_FILE = BASE_DIR / ".env"
+
+
+def _load_env_file() -> None:
+    path = ENV_FILE
+    if not path.exists():
+        return
+    try:
+        for raw_line in path.read_text(encoding="utf-8").splitlines():
+            line = raw_line.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key, value = line.split("=", 1)
+            key = key.strip()
+            value = value.strip().strip('"').strip("'")
+            if key and key not in os.environ:
+                os.environ[key] = value
+    except OSError:
+        pass
+
+
+_load_env_file()
+
 PROJECTS_ROOT = BASE_DIR / "projects"
 DEFAULT_PROJECT = "default"
 ASSET_ROUTE = "serve_project_asset"
 CHAT_ATTACHMENT_LIMIT = 6
 MAX_AGENT_FILES = 24
 MAX_AGENT_BYTES = 8_192
+DEFAULT_DASHSCOPE_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
+DASHSCOPE_BASE_URL = os.getenv("DASHSCOPE_BASE_URL", DEFAULT_DASHSCOPE_BASE_URL)
+DASHSCOPE_API_KEY = os.getenv("DASHSCOPE_API_KEY")
+FIONA_AGENT_MODEL = (os.getenv("FIONA_AGENT_MODEL") or "qwen3-vl-plus").strip()
+_thinking_flag = os.getenv("FIONA_AGENT_ENABLE_THINKING")
+FIONA_AGENT_ENABLE_THINKING = (_thinking_flag or "").strip().lower() in {"1", "true", "yes", "on"}
+try:
+    FIONA_AGENT_THINKING_BUDGET = int(os.getenv("FIONA_AGENT_THINKING_BUDGET", "81920") or "81920")
+except ValueError:
+    FIONA_AGENT_THINKING_BUDGET = 81920
+MAX_LAYOUT_CONTEXT_CHARS = 18_000
+MAX_TREE_CONTEXT_CHARS = 6_000
+MAX_FILE_PREVIEW_CHARS = 2_000
+MAX_FILE_CONTEXT = 6
+AGENT_SYSTEM_PROMPT = (
+    "You are Fyona, an editorial design assistant that helps plan and refine magazine layouts. Use the user's "
+    "message plus any attachments, the project directory listing, and the current layout JSON to reason about "
+    "grid, typography, and composition. When you propose changes, reference block IDs, page names, or coordinates "
+    "so the developer can implement them. If context is missing, ask clarifying questions. Respond in Markdown."
+)
+_openai_client: Optional["OpenAI"] = None
 
 PROJECTS_ROOT.mkdir(parents=True, exist_ok=True)
 
@@ -419,7 +467,141 @@ def _build_project_snapshot(project: str) -> Dict[str, Any]:
     }
 
 
-def _generate_chat_reply(message: str, attachments: List[Dict[str, Any]], agent_snapshot: Optional[Dict[str, Any]]) -> str:
+def _dashscope_configured() -> bool:
+    return bool(DASHSCOPE_API_KEY and FIONA_AGENT_MODEL)
+
+
+def _get_openai_client() -> "OpenAI":
+    global _openai_client
+    if _openai_client is not None:
+        return _openai_client
+    if not DASHSCOPE_API_KEY:
+        raise RuntimeError("DASHSCOPE_API_KEY is not configured.")
+    try:
+        from openai import OpenAI
+    except ImportError as exc:  # pragma: no cover - import guard
+        raise RuntimeError("Install the 'openai' package to enable the Qwen assistant.") from exc
+    _openai_client = OpenAI(api_key=DASHSCOPE_API_KEY, base_url=DASHSCOPE_BASE_URL)
+    return _openai_client
+
+
+def _truncate_context(text: str, limit: int) -> str:
+    snippet = (text or "").strip()
+    if not snippet:
+        return ""
+    if len(snippet) <= limit:
+        return snippet
+    return f"{snippet[:limit]}… (truncated)"
+
+
+def _build_qwen_messages(
+    message: str, attachments: List[Dict[str, Any]], agent_snapshot: Optional[Dict[str, Any]]
+) -> List[Dict[str, Any]]:
+    user_content: List[Dict[str, Any]] = []
+    trimmed = message.strip()
+    if trimmed:
+        user_content.append({"type": "text", "text": trimmed})
+    else:
+        user_content.append(
+            {
+                "type": "text",
+                "text": "No explicit instructions were provided. Offer actionable layout suggestions using the attached context.",
+            }
+        )
+
+    for attachment in attachments:
+        label = (attachment.get("label") or attachment.get("type") or "Attachment").strip()
+        att_type = (attachment.get("type") or "").lower()
+        meta = attachment.get("meta") or {}
+        meta_desc = []
+        if isinstance(meta, dict):
+            for key in ("page", "width", "height"):
+                if key in meta:
+                    meta_desc.append(f"{key}={meta[key]}")
+        if meta_desc:
+            label = f"{label} ({', '.join(meta_desc)})"
+        data_url = attachment.get("dataUrl")
+        if data_url and att_type.startswith("image"):
+            user_content.append({"type": "text", "text": f"{label} – latest canvas capture."})
+            user_content.append({"type": "image_url", "image_url": {"url": data_url}})
+        elif data_url:
+            user_content.append(
+                {"type": "text", "text": f"{label} – data URL provided but not rendered (type: {att_type or 'unknown'})."}
+            )
+        else:
+            user_content.append({"type": "text", "text": f"{label} – metadata only (type: {att_type or 'unknown'})."})
+
+    if agent_snapshot:
+        project_name = agent_snapshot.get("project") or DEFAULT_PROJECT
+        files_indexed = agent_snapshot.get("filesIndexed", 0)
+        directories_indexed = agent_snapshot.get("directoriesIndexed", 0)
+        snapshot_header = (
+            f"Agent snapshot for project “{project_name}”. "
+            f"Indexed {files_indexed} files across {directories_indexed} directories."
+        )
+        user_content.append({"type": "text", "text": snapshot_header})
+        tree = agent_snapshot.get("tree")
+        if tree:
+            user_content.append(
+                {
+                    "type": "text",
+                    "text": f"Project tree:\n{_truncate_context(tree, MAX_TREE_CONTEXT_CHARS)}",
+                }
+            )
+        layout = agent_snapshot.get("layout")
+        if layout:
+            layout_text = json.dumps(layout, indent=2, ensure_ascii=False)
+            user_content.append(
+                {
+                    "type": "text",
+                    "text": f"Layout JSON:\n{_truncate_context(layout_text, MAX_LAYOUT_CONTEXT_CHARS)}",
+                }
+            )
+        files = agent_snapshot.get("files") or []
+        if files:
+            summary_lines: List[str] = []
+            for file_info in files[:MAX_FILE_CONTEXT]:
+                path = file_info.get("path") or "unknown file"
+                size = file_info.get("size")
+                size_label = f"{size} bytes" if isinstance(size, int) else "unknown size"
+                summary_lines.append(f"- {path} ({size_label})")
+                preview = file_info.get("preview")
+                if preview:
+                    summary_lines.append(f"  Preview: {_truncate_context(preview, MAX_FILE_PREVIEW_CHARS)}")
+            if summary_lines:
+                user_content.append(
+                    {
+                        "type": "text",
+                        "text": "File previews:\n" + "\n".join(summary_lines),
+                    }
+                )
+
+    return [
+        {"role": "system", "content": [{"type": "text", "text": AGENT_SYSTEM_PROMPT}]},
+        {"role": "user", "content": user_content},
+    ]
+
+
+def _call_qwen_completion(messages: List[Dict[str, Any]]) -> str:
+    client = _get_openai_client()
+    payload: Dict[str, Any] = {"model": FIONA_AGENT_MODEL, "messages": messages}
+    extra_body: Dict[str, Any] = {}
+    if FIONA_AGENT_ENABLE_THINKING:
+        extra_body["enable_thinking"] = True
+        if FIONA_AGENT_THINKING_BUDGET > 0:
+            extra_body["thinking_budget"] = FIONA_AGENT_THINKING_BUDGET
+    if extra_body:
+        payload["extra_body"] = extra_body
+    response = client.chat.completions.create(**payload)
+    choice = (response.choices or [None])[0]
+    if not choice or not choice.message:
+        return "I could not generate a response. Please try again."
+    content = choice.message.content or ""
+    result = content.strip()
+    return result or "I could not find anything helpful to share. Try rephrasing your request."
+
+
+def _fallback_chat_reply(message: str, attachments: List[Dict[str, Any]], agent_snapshot: Optional[Dict[str, Any]]) -> str:
     sections: List[str] = []
     if message:
         sections.append(f"You said: {message}")
@@ -432,7 +614,20 @@ def _generate_chat_reply(message: str, attachments: List[Dict[str, Any]], agent_
         )
     if not sections:
         return "Hi! How can I help with your layout?"
+    sections.append("The AI assistant is offline, so this is only an acknowledgement.")
     return " ".join(sections)
+
+
+def _generate_chat_reply(message: str, attachments: List[Dict[str, Any]], agent_snapshot: Optional[Dict[str, Any]]) -> str:
+    if not _dashscope_configured():
+        return _fallback_chat_reply(message, attachments, agent_snapshot)
+    try:
+        messages = _build_qwen_messages(message or "", attachments, agent_snapshot)
+        return _call_qwen_completion(messages)
+    except Exception as exc:  # pragma: no cover - network and SDK failures
+        app.logger.exception("Qwen chat request failed: {error}".format(error=exc))
+        fallback = _fallback_chat_reply(message, attachments, agent_snapshot)
+        return f"{fallback} Assistant error: {exc.__class__.__name__}."
 
 
 # ---------------------------------------------------------------------------
