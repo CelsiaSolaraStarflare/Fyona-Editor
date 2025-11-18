@@ -34,8 +34,8 @@
       "type": "text",
       "content": "Editable text",
       "position": {
-        "left": 46,
-        "top": 161,
+        "left": 72,
+        "top": 169,
         "width": 260,
         "height": 140
       },
@@ -95,8 +95,8 @@
           "type": "text",
           "content": "Editable text",
           "position": {
-            "left": 46,
-            "top": 161,
+            "left": 72,
+            "top": 169,
             "width": 260,
             "height": 140
           },

@@ -119,9 +119,9 @@ document.addEventListener('DOMContentLoaded', () => {
     const CHAT_TREE_PREVIEW_LIMIT = 4000;
     const PAGE_THUMB_BLOCK_LIMIT = 4;
     const LAYOUT_SYNC_DELAY = 600;
-    const CHAT_PANEL_MIN_WIDTH = 300;
+    const CHAT_PANEL_MIN_WIDTH = 260;
     const CHAT_PANEL_MAX_WIDTH = 640;
-    const CHAT_PANEL_MIN_HEIGHT = 300;
+    const CHAT_PANEL_MIN_HEIGHT = 260;
     const CHAT_PANEL_MAX_HEIGHT = 640;
     let layoutSyncTimeout = null;
     const AUTO_PAGE_NAME_PATTERN = /^page\s+\d+$/i;
@@ -145,6 +145,7 @@ document.addEventListener('DOMContentLoaded', () => {
         window.addEventListener('resize', () => {
             scheduleCanvasFit();
             constrainTerminalToViewport();
+            handleChatPanelBounds();
         });
         setCanvasZoom(state.zoom);
         await loadProjects();
@@ -1516,6 +1517,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (els.chatAgentToggle) {
             els.chatAgentToggle.addEventListener('click', toggleAgentMode);
         }
+        initChatResizeHandle();
         setChatStatus('Assistant ready');
         updateAgentToggle();
     }
@@ -1528,9 +1530,112 @@ document.addEventListener('DOMContentLoaded', () => {
         els.chatPanel.setAttribute('aria-hidden', open ? 'false' : 'true');
         els.chatLauncher.setAttribute('aria-expanded', open ? 'true' : 'false');
         if (open) {
+            applySavedChatPanelSize();
             renderChatMessages();
             scrollChatLogToBottom();
         }
+    }
+
+    function initChatResizeHandle() {
+        if (!els.chatResizeHandle) return;
+        els.chatResizeHandle.addEventListener('pointerdown', startChatResize);
+    }
+
+    function startChatResize(event) {
+        if (!els.chatPanel) return;
+        event.preventDefault();
+        event.stopPropagation();
+        const rect = els.chatPanel.getBoundingClientRect();
+        chatResizeSession.active = true;
+        chatResizeSession.pointerId = event.pointerId ?? null;
+        chatResizeSession.startX = event.clientX;
+        chatResizeSession.startY = event.clientY;
+        chatResizeSession.startWidth = rect.width;
+        chatResizeSession.startHeight = rect.height;
+        state.chat.resizing = true;
+        els.chatPanel.classList.add('chat-panel--resizing');
+        if (els.chatResizeHandle && typeof els.chatResizeHandle.setPointerCapture === 'function' && Number.isInteger(event.pointerId)) {
+            try {
+                els.chatResizeHandle.setPointerCapture(event.pointerId);
+            } catch (error) {
+                console.warn('Unable to capture pointer:', error);
+            }
+        }
+        document.addEventListener('pointermove', handleChatResizeMove);
+        document.addEventListener('pointerup', endChatResize);
+        document.addEventListener('pointercancel', endChatResize);
+    }
+
+    function handleChatResizeMove(event) {
+        if (!chatResizeSession.active || !els.chatPanel) return;
+        event.preventDefault();
+        const deltaX = chatResizeSession.startX - event.clientX;
+        const deltaY = chatResizeSession.startY - event.clientY;
+        const nextWidth = chatResizeSession.startWidth + deltaX;
+        const nextHeight = chatResizeSession.startHeight + deltaY;
+        setChatPanelSize(nextWidth, nextHeight);
+    }
+
+    function endChatResize(event) {
+        if (!chatResizeSession.active) return;
+        chatResizeSession.active = false;
+        document.removeEventListener('pointermove', handleChatResizeMove);
+        document.removeEventListener('pointerup', endChatResize);
+        document.removeEventListener('pointercancel', endChatResize);
+        if (els.chatPanel) {
+            els.chatPanel.classList.remove('chat-panel--resizing');
+        }
+        if (els.chatResizeHandle && typeof els.chatResizeHandle.releasePointerCapture === 'function' && Number.isInteger(chatResizeSession.pointerId)) {
+            try {
+                els.chatResizeHandle.releasePointerCapture(chatResizeSession.pointerId);
+            } catch (error) {
+                console.warn('Unable to release pointer:', error);
+            }
+        }
+        chatResizeSession.pointerId = null;
+        state.chat.resizing = false;
+    }
+
+    function setChatPanelSize(width, height) {
+        if (!els.chatPanel) return;
+        const rect = els.chatPanel.getBoundingClientRect();
+        const targetWidth = Number.isFinite(width) ? width : rect.width;
+        const targetHeight = Number.isFinite(height) ? height : rect.height;
+        const clamped = clampChatPanelSize(targetWidth, targetHeight);
+        els.chatPanel.style.width = `${clamped.width}px`;
+        els.chatPanel.style.height = `${clamped.height}px`;
+        state.chat.panelSize = { width: clamped.width, height: clamped.height };
+        return clamped;
+    }
+
+    function clampChatPanelSize(width, height) {
+        const availableWidthRaw = window.innerWidth - 32;
+        const availableHeightRaw = window.innerHeight * 0.85;
+        const widthCeiling = availableWidthRaw > 0 ? availableWidthRaw : CHAT_PANEL_MIN_WIDTH;
+        const heightCeiling = availableHeightRaw > 0 ? availableHeightRaw : CHAT_PANEL_MIN_HEIGHT;
+        const minWidth = availableWidthRaw > 0 ? Math.min(CHAT_PANEL_MIN_WIDTH, availableWidthRaw) : CHAT_PANEL_MIN_WIDTH;
+        const minHeight = availableHeightRaw > 0 ? Math.min(CHAT_PANEL_MIN_HEIGHT, availableHeightRaw) : CHAT_PANEL_MIN_HEIGHT;
+        const maxWidth = Math.max(minWidth, Math.min(CHAT_PANEL_MAX_WIDTH, widthCeiling));
+        const maxHeight = Math.max(minHeight, Math.min(CHAT_PANEL_MAX_HEIGHT, heightCeiling));
+        return {
+            width: Math.min(Math.max(width, minWidth), maxWidth),
+            height: Math.min(Math.max(height, minHeight), maxHeight),
+        };
+    }
+
+    function applySavedChatPanelSize() {
+        if (!els.chatPanel) return;
+        if (!state.chat.panelSize) {
+            els.chatPanel.style.width = '';
+            els.chatPanel.style.height = '';
+            return;
+        }
+        setChatPanelSize(state.chat.panelSize.width, state.chat.panelSize.height);
+    }
+
+    function handleChatPanelBounds() {
+        if (!state.chat.panelSize) return;
+        setChatPanelSize(state.chat.panelSize.width, state.chat.panelSize.height);
     }
 
     async function handleChatSubmit(event) {
