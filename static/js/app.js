@@ -10,6 +10,9 @@ document.addEventListener('DOMContentLoaded', () => {
         canvas: document.getElementById('canvas'),
         canvasWrapper: document.querySelector('.canvas-wrapper'),
         canvasPanel: document.querySelector('.canvas-panel'),
+        pagesPanel: document.querySelector('.pages-panel'),
+        pagesList: document.getElementById('pages-list'),
+        pagesEmpty: document.getElementById('pages-empty'),
         inspectorEmpty: document.getElementById('inspector-empty'),
         inspectorForm: document.getElementById('inspector-form'),
         inspectorType: document.getElementById('inspector-type'),
@@ -54,6 +57,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const state = {
         project: initialProject,
         layout: null,
+        pages: [],
+        activePageId: null,
         blocks: new Map(),
         blockOrder: [],
         blockElements: new Map(),
@@ -100,6 +105,10 @@ document.addEventListener('DOMContentLoaded', () => {
     const CHAT_ATTACHMENT_LIMIT = 6;
     const CHAT_LAYOUT_PREVIEW_LIMIT = 6000;
     const CHAT_TREE_PREVIEW_LIMIT = 4000;
+    const PAGE_THUMB_BLOCK_LIMIT = 4;
+    const LAYOUT_SYNC_DELAY = 600;
+    let layoutSyncTimeout = null;
+    const hydratedPages = new Set();
 
     init();
 
@@ -355,20 +364,31 @@ document.addEventListener('DOMContentLoaded', () => {
                 state.chat.agentSnapshot = null;
                 updateAgentToggle();
             }
-            state.layout = layout;
-            state.blocks.clear();
-            state.blockElements.forEach((el) => el.remove());
-            state.blockElements.clear();
-            state.blockOrder = [];
+            state.layout = { ...layout };
+            state.pages = normalizePagesFromLayout(layout);
+            hydratedPages.clear();
+            state.layout.pages = state.pages;
+            const requestedActive = layout.activePageId || state.activePageId;
+            const hasRequested = state.pages.some((page) => page.id === requestedActive);
+            state.activePageId = hasRequested ? requestedActive : state.pages[0]?.id || null;
 
-            (layout.blocks || []).forEach((block) => {
-                state.blocks.set(block.id, normalizeBlock(block));
-                state.blockOrder.push(block.id);
-            });
+            applyCanvasMeta(state.layout);
+            const activePage = getActivePage();
+            state.layout.pages = state.pages;
+            state.layout.activePageId = state.activePageId;
+            state.layout.blocks = activePage ? activePage.blocks : [];
 
-            renderCanvas();
+            if (activePage) {
+                setActivePage(activePage.id, { silent: true, skipPersist: true, force: true });
+            } else {
+                state.blocks.clear();
+                state.blockElements.forEach((el) => el.remove());
+                state.blockElements.clear();
+                state.blockOrder = [];
+                els.canvas.innerHTML = '';
+                renderPagesSidebar();
+            }
             deselectBlock();
-            applyCanvasMeta(layout);
             updateCanvasSizeLabel();
             updateChatProjectStatus();
         } catch (error) {
@@ -379,6 +399,10 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function generateClientId() {
         return `block-${Math.random().toString(16).slice(2, 10)}`;
+    }
+
+    function generatePageId() {
+        return `page-${Math.random().toString(16).slice(2, 10)}`;
     }
 
     function normalizeBlock(block) {
@@ -404,6 +428,238 @@ document.addEventListener('DOMContentLoaded', () => {
                 height: Math.max(40, Math.round(Number(position.height) || 140)),
             },
         };
+    }
+
+    function normalizePagesFromLayout(layout) {
+        const rawPages = Array.isArray(layout?.pages) ? layout.pages : [];
+        const pagesSource = rawPages.length ? rawPages : [
+            {
+                id: layout?.activePageId,
+                name: 'Page 1',
+                order: 0,
+                blocks: layout?.blocks || [],
+                dimensions: layout?.dimensions,
+            },
+        ];
+        const normalized = pagesSource
+            .filter((page) => page && typeof page === 'object')
+            .map((page, index) => {
+                const pageId = typeof page.id === 'string' && page.id.trim() ? page.id : generatePageId();
+                const nameValue = page.name || page.title || `Page ${index + 1}`;
+                const name = String(nameValue).trim() || `Page ${index + 1}`;
+                const orderValue = typeof page.order === 'number' ? page.order : index;
+                const blocks = Array.isArray(page.blocks) ? page.blocks.map((block) => normalizeBlock(block)) : [];
+                const payload = {
+                    id: pageId,
+                    name,
+                    order: orderValue,
+                    blocks,
+                };
+                if (page.dimensions && typeof page.dimensions === 'object') {
+                    payload.dimensions = { ...page.dimensions };
+                }
+                return payload;
+            })
+            .sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+        normalized.forEach((page, index) => {
+            page.order = index;
+        });
+        return normalized;
+    }
+
+    function getActivePage() {
+        if (!state.pages.length) return null;
+        return state.pages.find((page) => page.id === state.activePageId) || state.pages[0];
+    }
+
+    function setActivePage(pageId, options = {}) {
+        if (state.activePageId && hydratedPages.has(state.activePageId)) {
+            syncActivePageBlocks();
+        }
+        const target = state.pages.find((page) => page.id === pageId) || state.pages[0] || null;
+        if (!target) {
+            state.activePageId = null;
+            state.layout.activePageId = null;
+            state.blocks.clear();
+            state.blockOrder = [];
+            state.blockElements.forEach((el) => el.remove());
+            state.blockElements.clear();
+            if (els.canvas) {
+                els.canvas.innerHTML = '';
+            }
+            renderPagesSidebar();
+            return;
+        }
+        const force = options.force;
+        if (state.activePageId === target.id && !force) {
+            renderPagesSidebar();
+            return;
+        }
+
+        deselectBlock();
+        state.activePageId = target.id;
+        state.layout.activePageId = target.id;
+        state.layout.blocks = target.blocks;
+        state.blocks.clear();
+        state.blockOrder = [];
+        state.blockElements.forEach((el) => el.remove());
+        state.blockElements.clear();
+        target.blocks.forEach((block) => {
+            state.blocks.set(block.id, block);
+            state.blockOrder.push(block.id);
+        });
+        renderCanvas();
+        renderPagesSidebar();
+        hydratedPages.add(target.id);
+        if (!options.silent) {
+            showToast(`Editing ${target.name}`);
+        }
+        if (!options.skipPersist) {
+            queueLayoutSync();
+        }
+    }
+
+    function resortPages() {
+        state.pages.sort((a, b) => (a.order ?? 0) - (b.order ?? 0));
+        state.pages.forEach((page, index) => {
+            page.order = index;
+        });
+    }
+
+    function renderPagesSidebar() {
+        if (!els.pagesList) return;
+        const container = els.pagesList;
+        container.innerHTML = '';
+        resortPages();
+        if (!state.pages.length) {
+            if (els.pagesEmpty) {
+                els.pagesEmpty.hidden = false;
+            }
+            const button = createPageInsertButton(0);
+            button.classList.add('page-insert--standalone');
+            container.appendChild(button);
+            return;
+        }
+        if (els.pagesEmpty) {
+            els.pagesEmpty.hidden = true;
+        }
+        container.appendChild(createPageInsertButton(0));
+        state.pages.forEach((page, index) => {
+            container.appendChild(createPagePreview(page));
+            container.appendChild(createPageInsertButton(index + 1));
+        });
+    }
+
+    function createPageInsertButton(index) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'page-insert';
+        button.dataset.index = index;
+        button.textContent = 'Add page';
+        button.setAttribute('aria-label', `Add page at position ${index + 1}`);
+        button.addEventListener('click', () => {
+            createPageAtIndex(Number(index));
+        });
+        return button;
+    }
+
+    function createPagePreview(page) {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.className = 'page-thumb';
+        if (page.id === state.activePageId) {
+            button.classList.add('page-thumb--active');
+        }
+        button.dataset.pageId = page.id;
+        if (page.id === state.activePageId) {
+            button.setAttribute('aria-current', 'page');
+        } else {
+            button.removeAttribute('aria-current');
+        }
+
+        const preview = document.createElement('div');
+        preview.className = 'page-thumb__preview';
+        const previewCanvas = document.createElement('div');
+        previewCanvas.className = 'page-thumb__preview-canvas';
+        const dims = state.layout?.dimensions || CANVAS_PRESETS[state.format] || CANVAS_PRESETS.A4;
+        (page.blocks || []).slice(0, PAGE_THUMB_BLOCK_LIMIT).forEach((block) => {
+            if (!block?.position) return;
+            const mini = document.createElement('div');
+            mini.className = 'page-thumb__mini-block';
+            if (block.type === 'image') {
+                mini.classList.add('page-thumb__mini-block--image');
+            }
+            const widthRatio = clampNumber(block.position.width / dims.width, 0.18, 1);
+            const heightRatio = clampNumber(block.position.height / dims.height, 0.08, 0.45);
+            const leftRatio = clampNumber(block.position.left / dims.width, 0, 1 - widthRatio);
+            const topRatio = clampNumber(block.position.top / dims.height, 0, 1 - heightRatio);
+            mini.style.width = `${Math.round(widthRatio * 100)}%`;
+            mini.style.height = `${Math.round(heightRatio * 100)}%`;
+            mini.style.left = `${Math.round(leftRatio * 100)}%`;
+            mini.style.top = `${Math.round(topRatio * 100)}%`;
+            previewCanvas.appendChild(mini);
+        });
+        preview.appendChild(previewCanvas);
+
+        const meta = document.createElement('div');
+        meta.className = 'page-thumb__meta';
+        const label = document.createElement('span');
+        label.className = 'page-thumb__label';
+        label.textContent = page.name;
+        const count = document.createElement('span');
+        const blockCount = page.blocks?.length || 0;
+        count.textContent = `${blockCount} block${blockCount === 1 ? '' : 's'}`;
+        meta.appendChild(label);
+        meta.appendChild(count);
+
+        button.appendChild(preview);
+        button.appendChild(meta);
+        button.addEventListener('click', () => {
+            setActivePage(page.id);
+        });
+        return button;
+    }
+
+    function createPageAtIndex(index) {
+        const safeIndex = Math.max(0, Math.min(typeof index === 'number' ? index : 0, state.pages.length));
+        const label = `Page ${state.pages.length + 1}`;
+        const newPage = {
+            id: generatePageId(),
+            name: label,
+            order: safeIndex,
+            blocks: [],
+        };
+        state.pages.splice(safeIndex, 0, newPage);
+        resortPages();
+        state.layout.pages = state.pages;
+        setActivePage(newPage.id, { force: true });
+    }
+
+    function syncActivePageBlocks() {
+        if (!state.activePageId || !hydratedPages.has(state.activePageId)) {
+            return;
+        }
+        const page = getActivePage();
+        if (!page) return;
+        page.blocks = state.blockOrder
+            .map((id) => state.blocks.get(id))
+            .filter(Boolean);
+        state.layout.blocks = page.blocks;
+    }
+
+    function getPageIdForBlock(blockId) {
+        const { page } = findBlockInPages(blockId);
+        return page?.id || state.activePageId;
+    }
+
+    function findBlockInPages(blockId) {
+        for (const page of state.pages) {
+            const block = page.blocks.find((item) => item.id === blockId);
+            if (block) {
+                return { page, block };
+            }
+        }
+        return { page: null, block: null };
     }
 
     function renderCanvas() {
@@ -550,6 +806,11 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function createBlock(type) {
+        const page = getActivePage();
+        if (!page) {
+            showToast('Add a page before placing blocks', true);
+            return;
+        }
         const basePosition = {
             left: 120 + Math.floor(Math.random() * 60),
             top: 120 + Math.floor(Math.random() * 60),
@@ -560,6 +821,7 @@ document.addEventListener('DOMContentLoaded', () => {
         const payload = {
             project: state.project,
             operation: 'add',
+            page_id: page.id,
             block: {
                 type,
                 content: type === 'image' ? 'Double-click to add image' : 'Editable text',
@@ -583,11 +845,15 @@ document.addEventListener('DOMContentLoaded', () => {
             const block = normalizeBlock(data.block);
             state.blocks.set(block.id, block);
             state.blockOrder.push(block.id);
+            page.blocks.push(block);
+            state.layout.blocks = page.blocks;
 
             const element = createBlockElement(block);
             els.canvas.appendChild(element);
             state.blockElements.set(block.id, element);
             selectBlock(block.id);
+            syncActivePageBlocks();
+            renderPagesSidebar();
             showToast(`${type === 'image' ? 'Image' : 'Text'} block added`);
         } catch (error) {
             console.error(error);
@@ -596,6 +862,11 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function deleteBlock(blockId) {
+        const { page } = findBlockInPages(blockId);
+        if (!page) {
+            showToast('Block not found', true);
+            return;
+        }
         try {
             const response = await fetch('/api/block', {
                 method: 'POST',
@@ -604,6 +875,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     project: state.project,
                     operation: 'delete',
                     block_id: blockId,
+                    page_id: page.id,
                 }),
             });
             if (!response.ok) throw new Error('Failed to delete block');
@@ -613,6 +885,9 @@ document.addEventListener('DOMContentLoaded', () => {
             state.blockElements.delete(blockId);
             state.blocks.delete(blockId);
             state.blockOrder = state.blockOrder.filter((id) => id !== blockId);
+            page.blocks = page.blocks.filter((block) => block.id !== blockId);
+            syncActivePageBlocks();
+            renderPagesSidebar();
             deselectBlock();
             showToast('Block deleted');
         } catch (error) {
@@ -622,6 +897,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     async function persistBlock(blockId, updates) {
+        const pageId = getPageIdForBlock(blockId);
         try {
             await fetch('/api/block', {
                 method: 'POST',
@@ -630,6 +906,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     project: state.project,
                     operation: 'update',
                     block_id: blockId,
+                    page_id: pageId,
                     updates,
                 }),
             });
@@ -639,18 +916,60 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    async function saveCurrentLayout() {
-        const layout = {
+    function buildLayoutPayload() {
+        syncActivePageBlocks();
+        const pages = state.pages.map((page, index) => ({
+            ...page,
+            order: index,
+            blocks: page.blocks.map((block) => ({
+                ...block,
+                position: { ...block.position },
+                typography: block.typography ? { ...block.typography } : undefined,
+            })),
+        }));
+        const activeBlocks = getActivePage()?.blocks || [];
+        return {
             ...state.layout,
             project: state.project,
-            blocks: state.blockOrder
-                .map((id) => state.blocks.get(id))
-                .filter(Boolean)
-                .map((block) => ({
-                    ...block,
-                    position: { ...block.position },
-                })),
+            pages,
+            blocks: activeBlocks.map((block) => ({
+                ...block,
+                position: { ...block.position },
+                typography: block.typography ? { ...block.typography } : undefined,
+            })),
+            activePageId: state.activePageId,
         };
+    }
+
+    function queueLayoutSync(delay = LAYOUT_SYNC_DELAY) {
+        if (layoutSyncTimeout) {
+            clearTimeout(layoutSyncTimeout);
+        }
+        layoutSyncTimeout = setTimeout(() => {
+            layoutSyncTimeout = null;
+            syncLayoutSilently();
+        }, delay);
+    }
+
+    async function syncLayoutSilently() {
+        if (!state.layout) return;
+        const layout = buildLayoutPayload();
+        try {
+            await fetch('/api/layout', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    project: state.project,
+                    layout,
+                }),
+            });
+        } catch (error) {
+            console.warn('Unable to sync layout structure', error);
+        }
+    }
+
+    async function saveCurrentLayout() {
+        const layout = buildLayoutPayload();
 
         try {
             const response = await fetch('/api/layout', {
@@ -1077,7 +1396,10 @@ document.addEventListener('DOMContentLoaded', () => {
     function triggerImageUpload(blockId) {
         const block = state.blocks.get(blockId);
         if (!block || !els.imageUploadInput) return;
-        state.pendingImageBlock = blockId;
+        state.pendingImageBlock = {
+            blockId,
+            pageId: getPageIdForBlock(blockId),
+        };
         els.imageUploadInput.value = '';
         els.imageUploadInput.click();
     }
@@ -1090,10 +1412,13 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         const file = input.files[0];
         input.value = '';
-        const blockId = state.pendingImageBlock;
+        const { blockId } = state.pendingImageBlock;
         state.pendingImageBlock = null;
-        const block = state.blocks.get(blockId);
-        if (!block) return;
+        const { block } = findBlockInPages(blockId);
+        if (!block) {
+            showToast('Block unavailable', true);
+            return;
+        }
 
         if (!file.type.startsWith('image/')) {
             showToast('Please select an image file', true);

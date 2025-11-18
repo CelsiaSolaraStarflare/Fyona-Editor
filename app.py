@@ -39,6 +39,7 @@ DEFAULT_LAYOUT: Dict[str, Any] = {
     "format": "A4",
     "dimensions": {"width": 794, "height": 1123},
     "blocks": [],
+    "pages": [],
     "layers": [
         {
             "id": "layer-main",
@@ -47,6 +48,7 @@ DEFAULT_LAYOUT: Dict[str, Any] = {
         }
     ],
     "activeLayer": "layer-main",
+    "activePageId": None,
 }
 
 
@@ -137,13 +139,103 @@ def _coerce_number(value: Any, fallback: float) -> float:
         return fallback
 
 
+def _generate_page_id() -> str:
+    return f"page-{uuid4().hex[:12]}"
+
+
+def _normalize_page(page: Dict[str, Any], index: int = 0) -> Dict[str, Any]:
+    page_id = page.get("id") or _generate_page_id()
+    raw_name = page.get("name") or page.get("title") or f"Page {index + 1}"
+    name = str(raw_name).strip()
+    order = int(_coerce_number(page.get("order"), float(index)))
+    incoming_blocks: Iterable[Dict[str, Any]] = page.get("blocks") or []
+    normalized_blocks = [normalize_block(block) for block in incoming_blocks if isinstance(block, dict)]
+    normalized: Dict[str, Any] = {
+        "id": page_id,
+        "name": name or f"Page {index + 1}",
+        "order": order,
+        "blocks": normalized_blocks,
+    }
+    dimensions = page.get("dimensions")
+    if isinstance(dimensions, dict):
+        normalized["dimensions"] = dict(dimensions)
+    return normalized
+
+
+def _select_active_page(pages: List[Dict[str, Any]], desired_id: Optional[str]) -> Optional[Dict[str, Any]]:
+    if not pages:
+        return None
+    if desired_id:
+        for page in pages:
+            if page.get("id") == desired_id:
+                return page
+    return pages[0]
+
+
+def locate_page(pages: Iterable[Dict[str, Any]], page_id: Optional[str]) -> Optional[Dict[str, Any]]:
+    if not page_id:
+        return None
+    for page in pages or []:
+        if page.get("id") == page_id:
+            return page
+    return None
+
+
+def locate_block_in_pages(
+    pages: Iterable[Dict[str, Any]], block_id: str
+) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[str, Any]]]:
+    for page in pages or []:
+        blocks = page.get("blocks", [])
+        block = locate_block(blocks, block_id)
+        if block:
+            return page, block
+    return None, None
+
+
+def _sync_layout_active_page(layout: Dict[str, Any], page: Optional[Dict[str, Any]]) -> None:
+    pages = layout.get("pages") or []
+    target = page or _select_active_page(pages, layout.get("activePageId"))
+    if not target:
+        layout["blocks"] = []
+        layout["activePageId"] = None
+        return
+    layout["activePageId"] = target.get("id")
+    layout["blocks"] = target.get("blocks", [])
+
+
 def normalize_layout(data: Dict[str, Any], project_name: str) -> Dict[str, Any]:
     layout = deepcopy(DEFAULT_LAYOUT)
-    layout.update({k: v for k, v in data.items() if k != "blocks"})
+    layout.update({k: v for k, v in data.items() if k not in {"blocks", "pages"}})
     layout["project"] = project_name
 
-    incoming_blocks: Iterable[Dict[str, Any]] = data.get("blocks") or []
-    layout["blocks"] = [normalize_block(block) for block in incoming_blocks if isinstance(block, dict)]
+    pages_payload = data.get("pages")
+    normalized_pages: List[Dict[str, Any]] = []
+    if isinstance(pages_payload, list):
+        for index, page in enumerate(pages_payload):
+            if isinstance(page, dict):
+                normalized_pages.append(_normalize_page(page, index))
+
+    if not normalized_pages:
+        fallback_page = {
+            "id": data.get("activePageId"),
+            "name": "Page 1",
+            "order": 0,
+            "blocks": data.get("blocks") or [],
+            "dimensions": data.get("dimensions"),
+        }
+        normalized_pages.append(_normalize_page(fallback_page, 0))
+
+    normalized_pages.sort(key=lambda item: item.get("order", 0))
+    layout["pages"] = normalized_pages
+
+    requested_active = layout.get("activePageId") or data.get("activePageId")
+    active_page = _select_active_page(normalized_pages, requested_active)
+    if active_page:
+        layout["activePageId"] = active_page.get("id")
+        layout["blocks"] = active_page.get("blocks", [])
+    else:
+        layout["activePageId"] = None
+        layout["blocks"] = []
     return layout
 
 
@@ -411,7 +503,12 @@ def block_api():
         return jsonify({"success": False, "error": "invalid operation"}), 400
 
     layout = load_layout(project)
-    blocks = layout.setdefault("blocks", [])
+    pages = layout.setdefault("pages", [])
+    page_id = payload.get("page_id")
+    target_page = locate_page(pages, page_id) or (pages[0] if pages else None)
+    if target_page is None:
+        target_page = _normalize_page({"name": "Page 1", "order": 0, "blocks": []}, 0)
+        pages.append(target_page)
 
     if operation == "add":
         block_data = payload.get("block")
@@ -419,22 +516,25 @@ def block_api():
             return jsonify({"success": False, "error": "block must be an object"}), 400
 
         new_block = normalize_block(block_data)
+        blocks = target_page.setdefault("blocks", [])
         while locate_block(blocks, new_block["id"]):
             new_block["id"] = _generate_block_id()
         blocks.append(new_block)
+        _sync_layout_active_page(layout, target_page)
         save_layout(project, layout)
-        return jsonify({"success": True, "block": new_block})
+        return jsonify({"success": True, "block": new_block, "page_id": target_page.get("id")})
 
     block_id = payload.get("block_id")
     if not isinstance(block_id, str) or not block_id.strip():
         return jsonify({"success": False, "error": "block_id is required"}), 400
 
-    block = locate_block(blocks, block_id)
+    owning_page, block = locate_block_in_pages(pages, block_id)
     if not block:
         return jsonify({"success": False, "error": "block not found"}), 404
 
     if operation == "delete":
-        layout["blocks"] = [b for b in blocks if b.get("id") != block_id]
+        owning_page["blocks"] = [b for b in owning_page.get("blocks", []) if b.get("id") != block_id]
+        _sync_layout_active_page(layout, owning_page)
         save_layout(project, layout)
         return jsonify({"success": True})
 
@@ -444,6 +544,7 @@ def block_api():
 
     deep_merge(block, updates)
     _sanitize_block_after_update(block)
+    _sync_layout_active_page(layout, owning_page)
     save_layout(project, layout)
     return jsonify({"success": True, "block": block})
 
@@ -460,9 +561,10 @@ def upload_media():
     block_id = request.form.get("block_id")
     layout = None
     block = None
+    owning_page: Optional[Dict[str, Any]] = None
     if block_id:
         layout = load_layout(project)
-        block = locate_block(layout.get("blocks", []), block_id)
+        owning_page, block = locate_block_in_pages(layout.get("pages", []), block_id)
         if not block:
             return jsonify({"success": False, "error": "block not found"}), 404
         if block.get("type") != "image":
@@ -481,6 +583,7 @@ def upload_media():
         block["imageUrl"] = url
         if not block.get("content"):
             block["content"] = Path(filename_hint).stem or "Image"
+        _sync_layout_active_page(layout, owning_page)
         save_layout(project, layout)
     response_payload: Dict[str, Any] = {"success": True, "url": url, "filename": unique_name}
     if block is not None:
@@ -617,6 +720,10 @@ def chat_assistant():
             agent_snapshot = _build_project_snapshot(project)
     layout = agent_snapshot["layout"] if agent_snapshot else load_layout(project)
     reply = _generate_chat_reply(message, attachments, agent_snapshot)
+    pages = layout.get("pages") or []
+    total_blocks = sum(len(page.get("blocks", [])) for page in pages)
+    if not total_blocks:
+        total_blocks = len(layout.get("blocks", []))
     return jsonify(
         {
             "success": True,
@@ -624,7 +731,7 @@ def chat_assistant():
             "agentSnapshot": agent_snapshot,
             "summary": {
                 "project": project,
-                "blocks": len(layout.get("blocks", [])),
+                "blocks": total_blocks,
             },
         }
     )
