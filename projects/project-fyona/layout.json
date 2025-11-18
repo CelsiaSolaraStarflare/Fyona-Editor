@@ -1,23 +1,1358 @@
 {
-  "columns": 3,
+  "columns": 6,
   "baseline": 24,
-  "gutter": 32,
+  "gutter": 28,
   "snap": true,
-  "zoom": 1.0,
+  "zoom": 1,
   "orientation": "portrait",
   "format": "A4",
   "dimensions": {
     "width": 794,
     "height": 1123
   },
-  "blocks": [],
+  "theme": {
+    "name": "Welcome to Fyona",
+    "palette": {
+      "background": "#050611",
+      "primary": "#ff9e5e",
+      "secondary": "#7dd3fc",
+      "accent": "#c084fc",
+      "muted": "#64748b",
+      "textPrimary": "#f8fafc",
+      "textSecondary": "#cbd5f5"
+    },
+    "typography": {
+      "masthead": {
+        "fontFamily": "playfair_display",
+        "fontWeight": 800,
+        "fontSize": 68,
+        "letterSpacing": 5
+      },
+      "sectionHeading": {
+        "fontFamily": "inter",
+        "fontWeight": 700,
+        "fontSize": 30,
+        "lineHeight": 1.2
+      },
+      "body": {
+        "fontFamily": "inter",
+        "fontWeight": 400,
+        "fontSize": 15,
+        "lineHeight": 1.6
+      },
+      "caption": {
+        "fontFamily": "inter",
+        "fontWeight": 500,
+        "fontSize": 12,
+        "letterSpacing": 1.2,
+        "transform": "uppercase"
+      }
+    }
+  },
   "layers": [
     {
-      "id": "layer-main",
-      "name": "Layer 1",
+      "id": "layer-background",
+      "name": "Background",
       "order": 0
+    },
+    {
+      "id": "layer-layout",
+      "name": "Layout",
+      "order": 1
+    },
+    {
+      "id": "layer-content",
+      "name": "Content",
+      "order": 2
+    },
+    {
+      "id": "layer-overlays",
+      "name": "Overlays",
+      "order": 3
     }
   ],
-  "activeLayer": "layer-main",
-  "project": "project-fyona"
+  "activeLayer": "layer-content",
+  "blocks": [
+    {
+      "id": "block-cover-bg",
+      "type": "image",
+      "role": "background",
+      "content": null,
+      "position": {
+        "left": 0,
+        "top": 0,
+        "width": 794,
+        "height": 1123
+      },
+      "backgroundColor": "#050611",
+      "textColor": "#f8fafc",
+      "borderRadius": 0,
+      "imageUrl": null,
+      "layer": "layer-background"
+    },
+    {
+      "id": "block-cover-stars",
+      "type": "image",
+      "role": "overlay",
+      "content": null,
+      "position": {
+        "left": 0,
+        "top": 0,
+        "width": 794,
+        "height": 1123
+      },
+      "backgroundColor": "rgba(15,23,42,0.7)",
+      "textColor": "#f8fafc",
+      "borderRadius": 0,
+      "imageUrl": null,
+      "layer": "layer-overlays"
+    },
+    {
+      "id": "block-cover-masthead",
+      "type": "text",
+      "role": "masthead",
+      "content": "WELCOME TO FYONA",
+      "position": {
+        "left": 60,
+        "top": 72,
+        "width": 520,
+        "height": 120
+      },
+      "backgroundColor": "transparent",
+      "textColor": "#f8fafc",
+      "borderRadius": 0,
+      "alignment": "left",
+      "layer": "layer-content",
+      "typography": {
+        "fontFamily": "playfair_display",
+        "fontWeight": 800,
+        "fontSize": 70,
+        "letterSpacing": 6
+      }
+    },
+    {
+      "id": "block-cover-issue",
+      "type": "text",
+      "role": "meta",
+      "content": "Issue 01 · An editor that thinks like a designer",
+      "position": {
+        "left": 60,
+        "top": 180,
+        "width": 360,
+        "height": 36
+      },
+      "backgroundColor": "transparent",
+      "textColor": "#cbd5f5",
+      "borderRadius": 0,
+      "alignment": "left",
+      "layer": "layer-content",
+      "typography": {
+        "fontFamily": "inter",
+        "fontWeight": 500,
+        "fontSize": 12,
+        "letterSpacing": 2,
+        "transform": "uppercase"
+      }
+    },
+    {
+      "id": "block-cover-tagline",
+      "type": "text",
+      "role": "tagline",
+      "content": "A five-page walkthrough of Fyona Editor—built entirely inside Fyona Editor.",
+      "position": {
+        "left": 60,
+        "top": 218,
+        "width": 420,
+        "height": 70
+      },
+      "backgroundColor": "transparent",
+      "textColor": "#94a3b8",
+      "borderRadius": 0,
+      "alignment": "left",
+      "layer": "layer-content",
+      "typography": {
+        "fontFamily": "inter",
+        "fontWeight": 500,
+        "fontSize": 15,
+        "lineHeight": 1.4
+      }
+    },
+    {
+      "id": "block-cover-hero-copy",
+      "type": "text",
+      "role": "hero",
+      "content": "Fyona keeps your design system in JSON, your art direction live, and your exports faithful. Meet the canvas people write about.",
+      "position": {
+        "left": 60,
+        "top": 300,
+        "width": 420,
+        "height": 160
+      },
+      "backgroundColor": "transparent",
+      "textColor": "#f8fafc",
+      "borderRadius": 0,
+      "alignment": "left",
+      "layer": "layer-content",
+      "typography": {
+        "fontFamily": "inter",
+        "fontWeight": 600,
+        "fontSize": 28,
+        "lineHeight": 1.35
+      }
+    },
+    {
+      "id": "block-cover-highlights",
+      "type": "text",
+      "role": "list",
+      "content": "— Canvas physics tuned for editorial grids\n— Collaboration trails with per-layer locks\n— Automation that exports PDF, raster, and web",
+      "position": {
+        "left": 60,
+        "top": 480,
+        "width": 360,
+        "height": 160
+      },
+      "backgroundColor": "transparent",
+      "textColor": "#cbd5f5",
+      "borderRadius": 0,
+      "alignment": "left",
+      "layer": "layer-content",
+      "typography": {
+        "fontFamily": "inter",
+        "fontWeight": 400,
+        "fontSize": 15,
+        "lineHeight": 1.6
+      }
+    },
+    {
+      "id": "block-cover-image",
+      "type": "image",
+      "role": "hero-image",
+      "content": null,
+      "position": {
+        "left": 450,
+        "top": 200,
+        "width": 280,
+        "height": 420
+      },
+      "backgroundColor": "#0f172a",
+      "textColor": "#f8fafc",
+      "borderRadius": 36,
+      "imageUrl": null,
+      "objectFit": "cover",
+      "layer": "layer-layout"
+    },
+    {
+      "id": "block-cover-footer",
+      "type": "text",
+      "role": "footer",
+      "content": "Inside: Editor playground, system thinking, smart automation, and a closing manifest.",
+      "position": {
+        "left": 60,
+        "top": 960,
+        "width": 600,
+        "height": 80
+      },
+      "backgroundColor": "transparent",
+      "textColor": "#94a3b8",
+      "borderRadius": 0,
+      "alignment": "left",
+      "layer": "layer-content",
+      "typography": {
+        "fontFamily": "inter",
+        "fontWeight": 400,
+        "fontSize": 14,
+        "lineHeight": 1.4
+      }
+    },
+    {
+      "id": "block-playground-bg",
+      "type": "image",
+      "role": "background",
+      "content": null,
+      "position": {
+        "left": 0,
+        "top": 0,
+        "width": 794,
+        "height": 1123
+      },
+      "backgroundColor": "#060716",
+      "textColor": "#f8fafc",
+      "borderRadius": 0,
+      "imageUrl": null,
+      "layer": "layer-background"
+    },
+    {
+      "id": "block-playground-title",
+      "type": "text",
+      "role": "section-title",
+      "content": "Spread 01 · Playground",
+      "position": {
+        "left": 64,
+        "top": 72,
+        "width": 380,
+        "height": 44
+      },
+      "backgroundColor": "transparent",
+      "textColor": "#7dd3fc",
+      "borderRadius": 0,
+      "alignment": "left",
+      "layer": "layer-content",
+      "typography": {
+        "fontFamily": "inter",
+        "fontWeight": 600,
+        "fontSize": 18,
+        "letterSpacing": 2
+      }
+    },
+    {
+      "id": "block-playground-heading",
+      "type": "text",
+      "role": "heading",
+      "content": "Columns, gutters, snap grids—tune them like sliders while the JSON updates in real time.",
+      "position": {
+        "left": 64,
+        "top": 120,
+        "width": 520,
+        "height": 90
+      },
+      "backgroundColor": "transparent",
+      "textColor": "#f8fafc",
+      "borderRadius": 0,
+      "alignment": "left",
+      "layer": "layer-content",
+      "typography": {
+        "fontFamily": "inter",
+        "fontWeight": 700,
+        "fontSize": 32,
+        "lineHeight": 1.2
+      }
+    },
+    {
+      "id": "block-playground-body-left",
+      "type": "text",
+      "role": "body",
+      "content": "Fyona keeps structure and story in the same file. Designers drag handles; engineers read the exact same data tree. No translation layers, no rebuilds.",
+      "position": {
+        "left": 64,
+        "top": 220,
+        "width": 320,
+        "height": 200
+      },
+      "backgroundColor": "transparent",
+      "textColor": "#cbd5f5",
+      "borderRadius": 0,
+      "alignment": "left",
+      "layer": "layer-content",
+      "typography": {
+        "fontFamily": "inter",
+        "fontWeight": 400,
+        "fontSize": 15,
+        "lineHeight": 1.6
+      }
+    },
+    {
+      "id": "block-playground-body-right",
+      "type": "text",
+      "role": "body",
+      "content": "Need a new tempo? Switch the baseline value and see every text block breathe together. Fyona's canvas is opinionated about rhythm but obedient to you.",
+      "position": {
+        "left": 404,
+        "top": 220,
+        "width": 320,
+        "height": 160
+      },
+      "backgroundColor": "transparent",
+      "textColor": "#94a3b8",
+      "borderRadius": 0,
+      "alignment": "left",
+      "layer": "layer-content",
+      "typography": {
+        "fontFamily": "inter",
+        "fontWeight": 400,
+        "fontSize": 15,
+        "lineHeight": 1.6
+      }
+    },
+    {
+      "id": "block-playground-card-grid",
+      "type": "text",
+      "role": "card",
+      "content": "Grid Presets\nThree column, six column, or freeform. Save yours as presets and share with the newsroom.",
+      "position": {
+        "left": 64,
+        "top": 450,
+        "width": 220,
+        "height": 220
+      },
+      "backgroundColor": "rgba(125,211,252,0.16)",
+      "textColor": "#7dd3fc",
+      "borderRadius": 32,
+      "alignment": "left",
+      "layer": "layer-layout",
+      "typography": {
+        "fontFamily": "inter",
+        "fontWeight": 600,
+        "fontSize": 18,
+        "lineHeight": 1.4
+      }
+    },
+    {
+      "id": "block-playground-card-physics",
+      "type": "text",
+      "role": "card",
+      "content": "Snap Physics\nBlocks respect baselines, but you can override for expressive headlines.",
+      "position": {
+        "left": 304,
+        "top": 450,
+        "width": 220,
+        "height": 220
+      },
+      "backgroundColor": "rgba(255,158,94,0.18)",
+      "textColor": "#ff9e5e",
+      "borderRadius": 32,
+      "alignment": "left",
+      "layer": "layer-layout",
+      "typography": {
+        "fontFamily": "inter",
+        "fontWeight": 600,
+        "fontSize": 18,
+        "lineHeight": 1.4
+      }
+    },
+    {
+      "id": "block-playground-card-panels",
+      "type": "text",
+      "role": "card",
+      "content": "Panels\nCompose layers, lock them, and hand the keys to collaborators.",
+      "position": {
+        "left": 544,
+        "top": 450,
+        "width": 220,
+        "height": 220
+      },
+      "backgroundColor": "rgba(192,132,252,0.2)",
+      "textColor": "#c084fc",
+      "borderRadius": 32,
+      "alignment": "left",
+      "layer": "layer-layout",
+      "typography": {
+        "fontFamily": "inter",
+        "fontWeight": 600,
+        "fontSize": 18,
+        "lineHeight": 1.4
+      }
+    },
+    {
+      "id": "block-playground-gallery",
+      "type": "image",
+      "role": "gallery",
+      "content": null,
+      "position": {
+        "left": 64,
+        "top": 710,
+        "width": 700,
+        "height": 280
+      },
+      "backgroundColor": "#0f172a",
+      "textColor": "#f8fafc",
+      "borderRadius": 40,
+      "imageUrl": null,
+      "layer": "layer-layout"
+    },
+    {
+      "id": "block-playground-caption",
+      "type": "text",
+      "role": "caption",
+      "content": "Drop mockups or mood boards here. Fyona keeps your empty frames until you're ready.",
+      "position": {
+        "left": 64,
+        "top": 1010,
+        "width": 700,
+        "height": 60
+      },
+      "backgroundColor": "transparent",
+      "textColor": "#94a3b8",
+      "borderRadius": 0,
+      "alignment": "center",
+      "layer": "layer-content",
+      "typography": {
+        "fontFamily": "inter",
+        "fontWeight": 500,
+        "fontSize": 14,
+        "letterSpacing": 1
+      }
+    },
+    {
+      "id": "block-workflow-bg",
+      "type": "image",
+      "role": "background",
+      "content": null,
+      "position": {
+        "left": 0,
+        "top": 0,
+        "width": 794,
+        "height": 1123
+      },
+      "backgroundColor": "#04050c",
+      "textColor": "#f8fafc",
+      "borderRadius": 0,
+      "imageUrl": null,
+      "layer": "layer-background"
+    },
+    {
+      "id": "block-workflow-title",
+      "type": "text",
+      "role": "section-title",
+      "content": "Spread 02 · Workflow",
+      "position": {
+        "left": 64,
+        "top": 72,
+        "width": 420,
+        "height": 48
+      },
+      "backgroundColor": "transparent",
+      "textColor": "#ff9e5e",
+      "borderRadius": 0,
+      "alignment": "left",
+      "layer": "layer-content",
+      "typography": {
+        "fontFamily": "inter",
+        "fontWeight": 600,
+        "fontSize": 18,
+        "letterSpacing": 2
+      }
+    },
+    {
+      "id": "block-workflow-heading",
+      "type": "text",
+      "role": "heading",
+      "content": "Live collaboration, context-aware comments, and approvals baked into the document itself.",
+      "position": {
+        "left": 64,
+        "top": 120,
+        "width": 520,
+        "height": 90
+      },
+      "backgroundColor": "transparent",
+      "textColor": "#f8fafc",
+      "borderRadius": 0,
+      "alignment": "left",
+      "layer": "layer-content",
+      "typography": {
+        "fontFamily": "inter",
+        "fontWeight": 700,
+        "fontSize": 30,
+        "lineHeight": 1.25
+      }
+    },
+    {
+      "id": "block-workflow-quote",
+      "type": "text",
+      "role": "quote",
+      "content": "\"Fyona keeps our writers and engineers inside the same storyboard. Comments pin directly to block IDs, so handoff feels like conversation.\"",
+      "position": {
+        "left": 64,
+        "top": 220,
+        "width": 666,
+        "height": 140
+      },
+      "backgroundColor": "rgba(15,23,42,0.7)",
+      "textColor": "#f8fafc",
+      "borderRadius": 36,
+      "alignment": "left",
+      "layer": "layer-layout",
+      "typography": {
+        "fontFamily": "playfair_display",
+        "fontWeight": 600,
+        "fontSize": 26,
+        "lineHeight": 1.4
+      }
+    },
+    {
+      "id": "block-workflow-columns-left",
+      "type": "text",
+      "role": "body",
+      "content": "Mentions follow you wherever a block is reused. Duplicate a module to page 5 and its entire conversation comes along.",
+      "position": {
+        "left": 64,
+        "top": 380,
+        "width": 320,
+        "height": 180
+      },
+      "backgroundColor": "transparent",
+      "textColor": "#cbd5f5",
+      "borderRadius": 0,
+      "alignment": "left",
+      "layer": "layer-content",
+      "typography": {
+        "fontFamily": "inter",
+        "fontWeight": 400,
+        "fontSize": 15,
+        "lineHeight": 1.6
+      }
+    },
+    {
+      "id": "block-workflow-columns-right",
+      "type": "text",
+      "role": "body",
+      "content": "Roles map to layers. Invite illustrators to Layer 2 while keeping system tokens locked above it. Everyone works with confidence.",
+      "position": {
+        "left": 404,
+        "top": 380,
+        "width": 326,
+        "height": 180
+      },
+      "backgroundColor": "transparent",
+      "textColor": "#94a3b8",
+      "borderRadius": 0,
+      "alignment": "left",
+      "layer": "layer-content",
+      "typography": {
+        "fontFamily": "inter",
+        "fontWeight": 400,
+        "fontSize": 15,
+        "lineHeight": 1.6
+      }
+    },
+    {
+      "id": "block-workflow-feature-list",
+      "type": "text",
+      "role": "list",
+      "content": "Presence · Branches · Version history · Approvals",
+      "position": {
+        "left": 64,
+        "top": 580,
+        "width": 666,
+        "height": 120
+      },
+      "backgroundColor": "rgba(125,211,252,0.14)",
+      "textColor": "#7dd3fc",
+      "borderRadius": 40,
+      "alignment": "center",
+      "layer": "layer-layout",
+      "typography": {
+        "fontFamily": "inter",
+        "fontWeight": 600,
+        "fontSize": 20,
+        "letterSpacing": 4
+      }
+    },
+    {
+      "id": "block-workflow-footer",
+      "type": "text",
+      "role": "footer",
+      "content": "Need to ship? One click merges the approved version into the export pipeline.",
+      "position": {
+        "left": 64,
+        "top": 780,
+        "width": 666,
+        "height": 140
+      },
+      "backgroundColor": "transparent",
+      "textColor": "#94a3b8",
+      "borderRadius": 0,
+      "alignment": "left",
+      "layer": "layer-content",
+      "typography": {
+        "fontFamily": "inter",
+        "fontWeight": 500,
+        "fontSize": 14,
+        "lineHeight": 1.5
+      }
+    },
+    {
+      "id": "block-systems-bg",
+      "type": "image",
+      "role": "background",
+      "content": null,
+      "position": {
+        "left": 0,
+        "top": 0,
+        "width": 794,
+        "height": 1123
+      },
+      "backgroundColor": "#05060f",
+      "textColor": "#f8fafc",
+      "borderRadius": 0,
+      "imageUrl": null,
+      "layer": "layer-background"
+    },
+    {
+      "id": "block-systems-title",
+      "type": "text",
+      "role": "section-title",
+      "content": "Spread 03 · Systems",
+      "position": {
+        "left": 64,
+        "top": 72,
+        "width": 420,
+        "height": 48
+      },
+      "backgroundColor": "transparent",
+      "textColor": "#c084fc",
+      "borderRadius": 0,
+      "alignment": "left",
+      "layer": "layer-content",
+      "typography": {
+        "fontFamily": "inter",
+        "fontWeight": 600,
+        "fontSize": 18,
+        "letterSpacing": 2
+      }
+    },
+    {
+      "id": "block-systems-heading",
+      "type": "text",
+      "role": "heading",
+      "content": "Component archetypes keep structure consistent while content flows.",
+      "position": {
+        "left": 64,
+        "top": 120,
+        "width": 520,
+        "height": 90
+      },
+      "backgroundColor": "transparent",
+      "textColor": "#f8fafc",
+      "borderRadius": 0,
+      "alignment": "left",
+      "layer": "layer-content",
+      "typography": {
+        "fontFamily": "inter",
+        "fontWeight": 700,
+        "fontSize": 30,
+        "lineHeight": 1.2
+      }
+    },
+    {
+      "id": "block-systems-process-1",
+      "type": "text",
+      "role": "process",
+      "content": "01  Define typography stacks once. Swap fonts globally or override locally for drama.",
+      "position": {
+        "left": 64,
+        "top": 220,
+        "width": 666,
+        "height": 110
+      },
+      "backgroundColor": "rgba(192,132,252,0.18)",
+      "textColor": "#c084fc",
+      "borderRadius": 28,
+      "alignment": "left",
+      "layer": "layer-layout",
+      "typography": {
+        "fontFamily": "inter",
+        "fontWeight": 600,
+        "fontSize": 18
+      }
+    },
+    {
+      "id": "block-systems-process-2",
+      "type": "text",
+      "role": "process",
+      "content": "02  Components capture layout + content rules. Duplicate, relabel, done.",
+      "position": {
+        "left": 64,
+        "top": 350,
+        "width": 666,
+        "height": 110
+      },
+      "backgroundColor": "rgba(125,211,252,0.18)",
+      "textColor": "#7dd3fc",
+      "borderRadius": 28,
+      "alignment": "left",
+      "layer": "layer-layout",
+      "typography": {
+        "fontFamily": "inter",
+        "fontWeight": 600,
+        "fontSize": 18
+      }
+    },
+    {
+      "id": "block-systems-process-3",
+      "type": "text",
+      "role": "process",
+      "content": "03  Tokens keep spacing and colors reliable whether you design in dark mode or print plates.",
+      "position": {
+        "left": 64,
+        "top": 480,
+        "width": 666,
+        "height": 110
+      },
+      "backgroundColor": "rgba(255,158,94,0.18)",
+      "textColor": "#ff9e5e",
+      "borderRadius": 28,
+      "alignment": "left",
+      "layer": "layer-layout",
+      "typography": {
+        "fontFamily": "inter",
+        "fontWeight": 600,
+        "fontSize": 18
+      }
+    },
+    {
+      "id": "block-systems-image",
+      "type": "image",
+      "role": "diagram",
+      "content": null,
+      "position": {
+        "left": 64,
+        "top": 620,
+        "width": 320,
+        "height": 260
+      },
+      "backgroundColor": "#0f172a",
+      "textColor": "#f8fafc",
+      "borderRadius": 36,
+      "imageUrl": null,
+      "layer": "layer-layout"
+    },
+    {
+      "id": "block-systems-body",
+      "type": "text",
+      "role": "body",
+      "content": "Fyona ships with archetypes for covers, interviews, infographics, and manifestos. Fork them or write your own. Everything is just JSON.",
+      "position": {
+        "left": 404,
+        "top": 620,
+        "width": 326,
+        "height": 260
+      },
+      "backgroundColor": "transparent",
+      "textColor": "#cbd5f5",
+      "borderRadius": 0,
+      "alignment": "left",
+      "layer": "layer-content",
+      "typography": {
+        "fontFamily": "inter",
+        "fontWeight": 400,
+        "fontSize": 15,
+        "lineHeight": 1.6
+      }
+    },
+    {
+      "id": "block-systems-footer",
+      "type": "text",
+      "role": "cta",
+      "content": "Steal these building blocks and spin up your own publishing kit tonight.",
+      "position": {
+        "left": 64,
+        "top": 920,
+        "width": 666,
+        "height": 100
+      },
+      "backgroundColor": "transparent",
+      "textColor": "#94a3b8",
+      "borderRadius": 0,
+      "alignment": "center",
+      "layer": "layer-content",
+      "typography": {
+        "fontFamily": "inter",
+        "fontWeight": 600,
+        "fontSize": 18,
+        "letterSpacing": 1
+      }
+    },
+    {
+      "id": "block-automation-bg",
+      "type": "image",
+      "role": "background",
+      "content": null,
+      "position": {
+        "left": 0,
+        "top": 0,
+        "width": 794,
+        "height": 1123
+      },
+      "backgroundColor": "#04060c",
+      "textColor": "#f8fafc",
+      "borderRadius": 0,
+      "imageUrl": null,
+      "layer": "layer-background"
+    },
+    {
+      "id": "block-automation-title",
+      "type": "text",
+      "role": "section-title",
+      "content": "Spread 04 · Automation",
+      "position": {
+        "left": 64,
+        "top": 72,
+        "width": 380,
+        "height": 48
+      },
+      "backgroundColor": "transparent",
+      "textColor": "#7dd3fc",
+      "borderRadius": 0,
+      "alignment": "left",
+      "layer": "layer-content",
+      "typography": {
+        "fontFamily": "inter",
+        "fontWeight": 600,
+        "fontSize": 18,
+        "letterSpacing": 2
+      }
+    },
+    {
+      "id": "block-automation-heading",
+      "type": "text",
+      "role": "heading",
+      "content": "Exports woven into your narrative: PNG storyboards, PDF issues, HTML previews.",
+      "position": {
+        "left": 64,
+        "top": 120,
+        "width": 520,
+        "height": 90
+      },
+      "backgroundColor": "transparent",
+      "textColor": "#f8fafc",
+      "borderRadius": 0,
+      "alignment": "left",
+      "layer": "layer-content",
+      "typography": {
+        "fontFamily": "inter",
+        "fontWeight": 700,
+        "fontSize": 30,
+        "lineHeight": 1.2
+      }
+    },
+    {
+      "id": "block-automation-body",
+      "type": "text",
+      "role": "body",
+      "content": "Fyona's export scripts read the same layout file you're editing. That means zero surprises between preview and handoff.",
+      "position": {
+        "left": 64,
+        "top": 220,
+        "width": 320,
+        "height": 160
+      },
+      "backgroundColor": "transparent",
+      "textColor": "#cbd5f5",
+      "borderRadius": 0,
+      "alignment": "left",
+      "layer": "layer-content",
+      "typography": {
+        "fontFamily": "inter",
+        "fontWeight": 400,
+        "fontSize": 15,
+        "lineHeight": 1.6
+      }
+    },
+    {
+      "id": "block-automation-steps",
+      "type": "text",
+      "role": "list",
+      "content": "01 · Raster Export\n02 · PDF Export\n03 · Template Handoff",
+      "position": {
+        "left": 404,
+        "top": 220,
+        "width": 326,
+        "height": 180
+      },
+      "backgroundColor": "transparent",
+      "textColor": "#94a3b8",
+      "borderRadius": 0,
+      "alignment": "right",
+      "layer": "layer-content",
+      "typography": {
+        "fontFamily": "inter",
+        "fontWeight": 600,
+        "fontSize": 18,
+        "letterSpacing": 1.4
+      }
+    },
+    {
+      "id": "block-automation-image",
+      "type": "image",
+      "role": "code",
+      "content": null,
+      "position": {
+        "left": 64,
+        "top": 420,
+        "width": 666,
+        "height": 260
+      },
+      "backgroundColor": "#0f172a",
+      "textColor": "#f8fafc",
+      "borderRadius": 36,
+      "imageUrl": null,
+      "layer": "layer-layout"
+    },
+    {
+      "id": "block-automation-footnotes",
+      "type": "text",
+      "role": "caption",
+      "content": "Hook your own scripts here. Fyona just passes you the structured blocks.",
+      "position": {
+        "left": 64,
+        "top": 700,
+        "width": 666,
+        "height": 60
+      },
+      "backgroundColor": "transparent",
+      "textColor": "#94a3b8",
+      "borderRadius": 0,
+      "alignment": "center",
+      "layer": "layer-content",
+      "typography": {
+        "fontFamily": "inter",
+        "fontWeight": 500,
+        "fontSize": 14,
+        "letterSpacing": 1.1
+      }
+    },
+    {
+      "id": "block-automation-cta",
+      "type": "text",
+      "role": "cta",
+      "content": "Push once and send proofs, press-ready PDFs, and marketing one-sheets at the same time.",
+      "position": {
+        "left": 64,
+        "top": 800,
+        "width": 666,
+        "height": 140
+      },
+      "backgroundColor": "transparent",
+      "textColor": "#f8fafc",
+      "borderRadius": 0,
+      "alignment": "center",
+      "layer": "layer-content",
+      "typography": {
+        "fontFamily": "inter",
+        "fontWeight": 600,
+        "fontSize": 20,
+        "lineHeight": 1.4
+      }
+    },
+    {
+      "id": "block-outro-bg",
+      "type": "image",
+      "role": "background",
+      "content": null,
+      "position": {
+        "left": 0,
+        "top": 0,
+        "width": 794,
+        "height": 1123
+      },
+      "backgroundColor": "#060712",
+      "textColor": "#f8fafc",
+      "borderRadius": 0,
+      "imageUrl": null,
+      "layer": "layer-background"
+    },
+    {
+      "id": "block-outro-title",
+      "type": "text",
+      "role": "section-title",
+      "content": "Spread 05 · Manifest",
+      "position": {
+        "left": 64,
+        "top": 72,
+        "width": 420,
+        "height": 48
+      },
+      "backgroundColor": "transparent",
+      "textColor": "#ff9e5e",
+      "borderRadius": 0,
+      "alignment": "left",
+      "layer": "layer-content",
+      "typography": {
+        "fontFamily": "inter",
+        "fontWeight": 600,
+        "fontSize": 18,
+        "letterSpacing": 2
+      }
+    },
+    {
+      "id": "block-outro-heading",
+      "type": "text",
+      "role": "heading",
+      "content": "Fyona is a letter to the makers who care equally about craft and delivery.",
+      "position": {
+        "left": 64,
+        "top": 120,
+        "width": 520,
+        "height": 90
+      },
+      "backgroundColor": "transparent",
+      "textColor": "#f8fafc",
+      "borderRadius": 0,
+      "alignment": "left",
+      "layer": "layer-content",
+      "typography": {
+        "fontFamily": "inter",
+        "fontWeight": 700,
+        "fontSize": 32,
+        "lineHeight": 1.2
+      }
+    },
+    {
+      "id": "block-outro-columns-left",
+      "type": "text",
+      "role": "body",
+      "content": "We built this editor because we were tired of the gap between presentations and production. Fyona is the bridge.",
+      "position": {
+        "left": 64,
+        "top": 220,
+        "width": 320,
+        "height": 180
+      },
+      "backgroundColor": "transparent",
+      "textColor": "#cbd5f5",
+      "borderRadius": 0,
+      "alignment": "left",
+      "layer": "layer-content",
+      "typography": {
+        "fontFamily": "inter",
+        "fontWeight": 400,
+        "fontSize": 15,
+        "lineHeight": 1.6
+      }
+    },
+    {
+      "id": "block-outro-columns-right",
+      "type": "text",
+      "role": "body",
+      "content": "You're reading a magazine produced from pure JSON. Swap copy, drop images, and it instantly becomes yours.",
+      "position": {
+        "left": 404,
+        "top": 220,
+        "width": 326,
+        "height": 180
+      },
+      "backgroundColor": "transparent",
+      "textColor": "#94a3b8",
+      "borderRadius": 0,
+      "alignment": "left",
+      "layer": "layer-content",
+      "typography": {
+        "fontFamily": "inter",
+        "fontWeight": 400,
+        "fontSize": 15,
+        "lineHeight": 1.6
+      }
+    },
+    {
+      "id": "block-outro-gallery-left",
+      "type": "image",
+      "role": "gallery",
+      "content": null,
+      "position": {
+        "left": 64,
+        "top": 430,
+        "width": 200,
+        "height": 260
+      },
+      "backgroundColor": "#0f172a",
+      "textColor": "#f8fafc",
+      "borderRadius": 28,
+      "imageUrl": null,
+      "layer": "layer-layout"
+    },
+    {
+      "id": "block-outro-gallery-center",
+      "type": "image",
+      "role": "gallery",
+      "content": null,
+      "position": {
+        "left": 297,
+        "top": 430,
+        "width": 200,
+        "height": 260
+      },
+      "backgroundColor": "#0f172a",
+      "textColor": "#f8fafc",
+      "borderRadius": 28,
+      "imageUrl": null,
+      "layer": "layer-layout"
+    },
+    {
+      "id": "block-outro-gallery-right",
+      "type": "image",
+      "role": "gallery",
+      "content": null,
+      "position": {
+        "left": 530,
+        "top": 430,
+        "width": 200,
+        "height": 260
+      },
+      "backgroundColor": "#0f172a",
+      "textColor": "#f8fafc",
+      "borderRadius": 28,
+      "imageUrl": null,
+      "layer": "layer-layout"
+    },
+    {
+      "id": "block-outro-quote",
+      "type": "text",
+      "role": "quote",
+      "content": "\"If you can describe it, Fyona can design it.\"",
+      "position": {
+        "left": 64,
+        "top": 710,
+        "width": 666,
+        "height": 120
+      },
+      "backgroundColor": "rgba(15,23,42,0.7)",
+      "textColor": "#f8fafc",
+      "borderRadius": 36,
+      "alignment": "center",
+      "layer": "layer-layout",
+      "typography": {
+        "fontFamily": "playfair_display",
+        "fontWeight": 600,
+        "fontSize": 26,
+        "lineHeight": 1.3
+      }
+    },
+    {
+      "id": "block-outro-cta",
+      "type": "text",
+      "role": "cta",
+      "content": "Clone this project, rename the blocks, and you're shipping. Welcome to Fyona.",
+      "position": {
+        "left": 64,
+        "top": 860,
+        "width": 666,
+        "height": 160
+      },
+      "backgroundColor": "transparent",
+      "textColor": "#f8fafc",
+      "borderRadius": 0,
+      "alignment": "center",
+      "layer": "layer-content",
+      "typography": {
+        "fontFamily": "inter",
+        "fontWeight": 600,
+        "fontSize": 20,
+        "lineHeight": 1.5
+      }
+    }
+  ],
+  "pages": [
+    {
+      "id": "page-cover",
+      "name": "Cover",
+      "order": 0,
+      "dimensions": {
+        "width": 794,
+        "height": 1123
+      },
+      "blocks": [
+        "block-cover-bg",
+        "block-cover-stars",
+        "block-cover-masthead",
+        "block-cover-issue",
+        "block-cover-tagline",
+        "block-cover-hero-copy",
+        "block-cover-highlights",
+        "block-cover-image",
+        "block-cover-footer"
+      ]
+    },
+    {
+      "id": "page-playground",
+      "name": "Playground",
+      "order": 1,
+      "dimensions": {
+        "width": 794,
+        "height": 1123
+      },
+      "blocks": [
+        "block-playground-bg",
+        "block-playground-title",
+        "block-playground-heading",
+        "block-playground-body-left",
+        "block-playground-body-right",
+        "block-playground-card-grid",
+        "block-playground-card-physics",
+        "block-playground-card-panels",
+        "block-playground-gallery",
+        "block-playground-caption"
+      ]
+    },
+    {
+      "id": "page-workflow",
+      "name": "Workflow",
+      "order": 2,
+      "dimensions": {
+        "width": 794,
+        "height": 1123
+      },
+      "blocks": [
+        "block-workflow-bg",
+        "block-workflow-title",
+        "block-workflow-heading",
+        "block-workflow-quote",
+        "block-workflow-columns-left",
+        "block-workflow-columns-right",
+        "block-workflow-feature-list",
+        "block-workflow-footer"
+      ]
+    },
+    {
+      "id": "page-systems",
+      "name": "Systems",
+      "order": 3,
+      "dimensions": {
+        "width": 794,
+        "height": 1123
+      },
+      "blocks": [
+        "block-systems-bg",
+        "block-systems-title",
+        "block-systems-heading",
+        "block-systems-process-1",
+        "block-systems-process-2",
+        "block-systems-process-3",
+        "block-systems-image",
+        "block-systems-body",
+        "block-systems-footer"
+      ]
+    },
+    {
+      "id": "page-automation",
+      "name": "Automation",
+      "order": 4,
+      "dimensions": {
+        "width": 794,
+        "height": 1123
+      },
+      "blocks": [
+        "block-automation-bg",
+        "block-automation-title",
+        "block-automation-heading",
+        "block-automation-body",
+        "block-automation-steps",
+        "block-automation-image",
+        "block-automation-footnotes",
+        "block-automation-cta"
+      ]
+    },
+    {
+      "id": "page-outro",
+      "name": "Manifest",
+      "order": 5,
+      "dimensions": {
+        "width": 794,
+        "height": 1123
+      },
+      "blocks": [
+        "block-outro-bg",
+        "block-outro-title",
+        "block-outro-heading",
+        "block-outro-columns-left",
+        "block-outro-columns-right",
+        "block-outro-gallery-left",
+        "block-outro-gallery-center",
+        "block-outro-gallery-right",
+        "block-outro-quote",
+        "block-outro-cta"
+      ]
+    }
+  ],
+  "activePageId": "page-cover",
+  "project": "Welcome to Fyona"
 }

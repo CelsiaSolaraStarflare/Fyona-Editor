@@ -1,7 +1,7 @@
 {
-  "columns": 3,
+  "columns": 6,
   "baseline": 24,
-  "gutter": 32,
+  "gutter": 24,
   "snap": true,
   "zoom": 1,
   "orientation": "portrait",
@@ -12,55 +12,19 @@
   },
   "blocks": [
     {
-      "id": "block-b3d44745964b",
+      "id": "block-d6c32cf10053",
       "type": "text",
-      "content": "",
+      "content": "Copy",
       "position": {
-        "left": 36,
-        "top": 37,
-        "width": 351,
-        "height": 101
+        "left": 134,
+        "top": 25,
+        "width": 240,
+        "height": 120
       },
       "backgroundColor": "#ffffff",
       "textColor": "#1c2333",
       "borderRadius": 12,
       "imageUrl": null,
-      "typography": {
-        "fontFamily": "merriweather"
-      }
-    },
-    {
-      "id": "block-1b4f094b8613",
-      "type": "text",
-      "content": "Editable text",
-      "position": {
-        "left": 72,
-        "top": 169,
-        "width": 260,
-        "height": 140
-      },
-      "backgroundColor": "#ffffff",
-      "textColor": "#1c2333",
-      "borderRadius": 12,
-      "imageUrl": null,
-      "typography": {
-        "fontFamily": "inter"
-      }
-    },
-    {
-      "id": "block-a3c4b6bfb422",
-      "type": "image",
-      "content": "88888339.jpeg",
-      "position": {
-        "left": 406,
-        "top": 47,
-        "width": 260,
-        "height": 180
-      },
-      "backgroundColor": "#ffffff",
-      "textColor": "#1c2333",
-      "borderRadius": 12,
-      "imageUrl": "/project-assets/default/88888339-26719b329f.jpeg",
       "typography": {
         "fontFamily": "inter"
       }
@@ -68,60 +32,24 @@
   ],
   "pages": [
     {
-      "id": "page-37c9651d1c6f",
-      "name": "Page 1",
+      "id": "page-cover",
+      "name": "Cover",
       "order": 0,
       "blocks": [
         {
-          "id": "block-b3d44745964b",
+          "id": "block-d6c32cf10053",
           "type": "text",
-          "content": "",
+          "content": "Copy",
           "position": {
-            "left": 36,
-            "top": 37,
-            "width": 351,
-            "height": 101
+            "left": 134,
+            "top": 25,
+            "width": 240,
+            "height": 120
           },
           "backgroundColor": "#ffffff",
           "textColor": "#1c2333",
           "borderRadius": 12,
           "imageUrl": null,
-          "typography": {
-            "fontFamily": "merriweather"
-          }
-        },
-        {
-          "id": "block-1b4f094b8613",
-          "type": "text",
-          "content": "Editable text",
-          "position": {
-            "left": 72,
-            "top": 169,
-            "width": 260,
-            "height": 140
-          },
-          "backgroundColor": "#ffffff",
-          "textColor": "#1c2333",
-          "borderRadius": 12,
-          "imageUrl": null,
-          "typography": {
-            "fontFamily": "inter"
-          }
-        },
-        {
-          "id": "block-a3c4b6bfb422",
-          "type": "image",
-          "content": "88888339.jpeg",
-          "position": {
-            "left": 406,
-            "top": 47,
-            "width": 260,
-            "height": 180
-          },
-          "backgroundColor": "#ffffff",
-          "textColor": "#1c2333",
-          "borderRadius": 12,
-          "imageUrl": "/project-assets/default/88888339-26719b329f.jpeg",
           "typography": {
             "fontFamily": "inter"
           }
@@ -133,32 +61,128 @@
       }
     },
     {
-      "id": "page-61c2d0cc",
+      "id": "page-4e160247",
       "name": "Page 2",
       "order": 1,
       "blocks": []
     },
     {
-      "id": "page-b29c7f17",
-      "name": "Page 3",
+      "id": "page-canvas",
+      "name": "Canvas",
       "order": 2,
-      "blocks": []
+      "blocks": [],
+      "dimensions": {
+        "height": 1123,
+        "width": 794
+      }
     },
     {
-      "id": "page-d27465dd",
-      "name": "Page 4",
+      "id": "page-collab",
+      "name": "Collaboration",
       "order": 3,
-      "blocks": []
+      "blocks": [],
+      "dimensions": {
+        "height": 1123,
+        "width": 794
+      }
+    },
+    {
+      "id": "page-systems",
+      "name": "Systems",
+      "order": 4,
+      "blocks": [],
+      "dimensions": {
+        "height": 1123,
+        "width": 794
+      }
+    },
+    {
+      "id": "page-showcase",
+      "name": "Showcase",
+      "order": 5,
+      "blocks": [],
+      "dimensions": {
+        "height": 1123,
+        "width": 794
+      }
     }
   ],
   "layers": [
     {
-      "id": "layer-main",
-      "name": "Layer 1",
+      "id": "layer-background",
+      "name": "Background",
       "order": 0
+    },
+    {
+      "id": "layer-layout",
+      "name": "Layout",
+      "order": 1
+    },
+    {
+      "id": "layer-content",
+      "name": "Content",
+      "order": 2
+    },
+    {
+      "id": "layer-overlays",
+      "name": "Overlays",
+      "order": 3
     }
   ],
-  "activeLayer": "layer-main",
-  "activePageId": "page-37c9651d1c6f",
-  "project": "default"
+  "activeLayer": "layer-content",
+  "activePageId": "page-cover",
+  "project": "default",
+  "theme": {
+    "grid": {
+      "columnCount": 6,
+      "columnWidth": 96,
+      "margin": {
+        "bottom": 64,
+        "left": 48,
+        "right": 48,
+        "top": 48
+      }
+    },
+    "name": "Fyona Editor Showcase",
+    "palette": {
+      "accent": "#a855f7",
+      "background": "#050816",
+      "muted": "#475569",
+      "primary": "#f97316",
+      "secondary": "#22d3ee",
+      "textPrimary": "#f8fafc",
+      "textSecondary": "#cbd5f5"
+    },
+    "typography": {
+      "body": {
+        "fontFamily": "inter",
+        "fontSize": 13,
+        "fontWeight": 400,
+        "letterSpacing": 0,
+        "lineHeight": 1.5
+      },
+      "caption": {
+        "fontFamily": "inter",
+        "fontSize": 11,
+        "fontWeight": 500,
+        "letterSpacing": 0.16,
+        "lineHeight": 1.4,
+        "transform": "uppercase"
+      },
+      "masthead": {
+        "fontFamily": "playfair_display",
+        "fontSize": 64,
+        "fontWeight": 800,
+        "letterSpacing": 0.08,
+        "lineHeight": 1.05
+      },
+      "sectionHeading": {
+        "fontFamily": "inter",
+        "fontSize": 28,
+        "fontWeight": 700,
+        "letterSpacing": 0.04,
+        "lineHeight": 1.2
+      }
+    }
+  }
 }

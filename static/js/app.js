@@ -87,6 +87,7 @@ document.addEventListener('DOMContentLoaded', () => {
             dragOffsetX: 0,
             dragOffsetY: 0,
             isOpen: false,
+            isBusy: false,
         },
     };
 
@@ -1883,6 +1884,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!state.terminal.element) return;
         state.terminal.element.classList.remove('floating-terminal--visible');
         state.terminal.isOpen = false;
+        setTerminalBusy(false);
     }
 
     function ensureTerminalWindow() {
@@ -1905,12 +1907,6 @@ document.addEventListener('DOMContentLoaded', () => {
         closeBtn.setAttribute('aria-label', 'Close terminal');
         closeBtn.addEventListener('click', closeFloatingTerminal);
         traffic.appendChild(closeBtn);
-        const minimize = document.createElement('span');
-        minimize.className = 'floating-terminal__dot floating-terminal__dot--min';
-        traffic.appendChild(minimize);
-        const expand = document.createElement('span');
-        expand.className = 'floating-terminal__dot floating-terminal__dot--max';
-        traffic.appendChild(expand);
         header.appendChild(traffic);
 
         const title = document.createElement('div');
@@ -1941,34 +1937,99 @@ document.addEventListener('DOMContentLoaded', () => {
         promptForm.appendChild(input);
         promptForm.addEventListener('submit', (event) => {
             event.preventDefault();
+            if (state.terminal.isBusy) return;
             const value = input.value.trim();
             if (!value) return;
-            appendTerminalLine(`$ ${value}`, 'input');
-            appendTerminalLine('Command output placeholder — wire this up when ready.', 'muted');
             input.value = '';
+            runTerminalCommand(value);
         });
         body.appendChild(promptForm);
 
         container.appendChild(header);
         container.appendChild(body);
         document.body.appendChild(container);
+        container.addEventListener(
+            'wheel',
+            (event) => {
+                if (!state.terminal.log) return;
+                if (event.target && event.target.closest('.floating-terminal__log')) {
+                    return;
+                }
+                if (event.target && event.target.closest('.floating-terminal__prompt input')) {
+                    return;
+                }
+                state.terminal.log.scrollTop += event.deltaY;
+                event.preventDefault();
+            },
+            { passive: false },
+        );
 
         state.terminal.element = container;
         state.terminal.log = log;
         state.terminal.input = input;
 
         appendTerminalLine('Fyona terminal ready.', 'muted');
-        appendTerminalLine('Commands will run line-by-line once connected.', 'muted');
+        appendTerminalLine('Type `help` to see available commands.', 'muted');
         return container;
     }
 
     function appendTerminalLine(text, variant = 'output') {
         if (!state.terminal.log) return;
+        const shouldStick =
+            Math.abs(
+                state.terminal.log.scrollHeight -
+                    (state.terminal.log.scrollTop + state.terminal.log.clientHeight),
+            ) < 24;
         const line = document.createElement('div');
         line.className = `floating-terminal__line floating-terminal__line--${variant}`;
         line.textContent = text;
         state.terminal.log.appendChild(line);
-        state.terminal.log.scrollTop = state.terminal.log.scrollHeight;
+        if (shouldStick) {
+            state.terminal.log.scrollTop = state.terminal.log.scrollHeight;
+        }
+    }
+
+    function setTerminalBusy(isBusy) {
+        state.terminal.isBusy = isBusy;
+        if (state.terminal.input) {
+            state.terminal.input.disabled = isBusy;
+            state.terminal.input.placeholder = isBusy ? 'Running…' : 'Type a command…';
+        }
+        if (state.terminal.element) {
+            state.terminal.element.classList.toggle('floating-terminal--busy', isBusy);
+        }
+    }
+
+    async function runTerminalCommand(command) {
+        const trimmed = command.trim();
+        if (!trimmed) return;
+        if (state.terminal.isBusy) {
+            appendTerminalLine('Terminal busy. Please wait for the current command to finish.', 'muted');
+            return;
+        }
+        openFloatingTerminal();
+        appendTerminalLine(`$ ${trimmed}`, 'input');
+        setTerminalBusy(true);
+        try {
+            const response = await fetch('/api/terminal', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ project: state.project, command: trimmed }),
+            });
+            const data = await response.json().catch(() => ({}));
+            if (!response.ok || !data.success) {
+                throw new Error(data.error || 'Unable to run command.');
+            }
+            appendTerminalLine(data.output || 'Done.', 'output');
+            if (data.layoutUpdated) {
+                await loadLayout(state.project);
+            }
+        } catch (error) {
+            console.error(error);
+            appendTerminalLine(error.message || 'Unable to run command.', 'error');
+        } finally {
+            setTerminalBusy(false);
+        }
     }
 
     function handleTerminalDragStart(event) {

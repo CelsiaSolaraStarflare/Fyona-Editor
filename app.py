@@ -17,6 +17,7 @@ from export_formats import ExportFormatError, export_layout
 from fonts import get_font, list_fonts
 from pdf_export import PdfExportError
 from raster_export import rasterize_layout
+from terminal import TerminalCommandError, TerminalProcessor
 
 if TYPE_CHECKING:  # pragma: no cover
     from openai import OpenAI
@@ -948,6 +949,34 @@ def chat_agent_snapshot():
     project = sanitize_project(request.args.get("project") or DEFAULT_PROJECT)
     snapshot = _build_project_snapshot(project)
     return jsonify({"success": True, "snapshot": snapshot})
+
+
+@app.route("/api/terminal", methods=["POST"])
+def terminal_command():
+    payload = request.get_json(silent=True) or {}
+    command = (payload.get("command") or "").strip()
+    if not command:
+        return jsonify({"success": False, "error": "Command is required."}), 400
+    project = sanitize_project(payload.get("project") or DEFAULT_PROJECT)
+    layout = load_layout(project)
+    processor = TerminalProcessor(project=project, layout=deepcopy(layout), block_id_factory=_generate_block_id)
+    try:
+        result = processor.run(command)
+    except TerminalCommandError as exc:
+        return jsonify({"success": False, "error": str(exc)}), 400
+    except Exception:  # pragma: no cover - defensive logging
+        app.logger.exception("terminal command failed")
+        return jsonify({"success": False, "error": "Unable to run command."}), 500
+
+    if result.layout is not None:
+        save_layout(project, result.layout)
+    return jsonify(
+        {
+            "success": True,
+            "output": result.output,
+            "layoutUpdated": bool(result.layout),
+        }
+    )
 
 
 if __name__ == "__main__":
