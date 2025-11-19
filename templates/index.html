@@ -204,40 +204,40 @@
                     <p class="chat-panel__subtitle" id="chat-status">Assistant ready</p>
                 </div>
                 <div class="chat-panel__header-actions">
-                    <button type="button" class="chat-agent-toggle" id="chat-agent-toggle">Agent Mode Off</button>
+                    <div class="chat-agent-actions">
+                        <button type="button" class="chat-agent-toggle" id="chat-agent-toggle">Agent Mode Off</button>
+                        <button
+                            type="button"
+                            class="chat-agent-options__toggle"
+                            id="chat-agent-options-toggle"
+                            aria-expanded="false"
+                            aria-controls="chat-agent-indicator"
+                            aria-label="Agent abilities"
+                            title="Agent abilities"
+                        >
+                            <span class="chat-agent-options__dots" aria-hidden="true">⋯</span>
+                            <span class="chat-agent-options__chevron" aria-hidden="true">▾</span>
+                        </button>
+                        <div class="chat-agent-indicator" id="chat-agent-indicator" hidden>
+                            <strong>Agent Mode</strong>
+                            <span id="chat-agent-permission-summary">The assistant can inspect your project files.</span>
+                            <div class="chat-agent-options__panel">
+                                <p class="chat-agent-options__hint">Choose what Fyona is allowed to do.</p>
+                                <label class="chat-agent-permission">
+                                    <input type="checkbox" id="chat-agent-allow-edits">
+                                    Allow layout edits
+                                </label>
+                                <label class="chat-agent-permission">
+                                    <input type="checkbox" id="chat-agent-allow-web">
+                                    Enable Bing web search
+                                </label>
+                            </div>
+                        </div>
+                    </div>
                     <button type="button" class="chat-close" id="chat-close" aria-label="Close assistant">×</button>
                 </div>
             </header>
             <p class="chat-token-stats" id="chat-token-stats" aria-live="polite">Tokens: —</p>
-            <div class="chat-agent-indicator" id="chat-agent-indicator" hidden>
-                <strong>Agent Mode enabled</strong>
-                <span id="chat-agent-permission-summary">The assistant can inspect your project files.</span>
-                <div class="chat-agent-options" id="chat-agent-options" hidden>
-                    <button
-                        type="button"
-                        class="chat-agent-options__toggle"
-                        id="chat-agent-options-toggle"
-                        aria-expanded="false"
-                        aria-controls="chat-agent-options-panel"
-                        aria-label="Agent abilities"
-                        title="Agent abilities"
-                    >
-                        <span class="chat-agent-options__dots" aria-hidden="true">⋯</span>
-                        <span class="chat-agent-options__chevron" aria-hidden="true">▾</span>
-                    </button>
-                    <div class="chat-agent-options__panel" id="chat-agent-options-panel" hidden>
-                        <p class="chat-agent-options__hint">Choose what Fyona is allowed to do.</p>
-                        <label class="chat-agent-permission">
-                            <input type="checkbox" id="chat-agent-allow-edits">
-                            Allow layout edits
-                        </label>
-                        <label class="chat-agent-permission">
-                            <input type="checkbox" id="chat-agent-allow-web">
-                            Enable Bing web search
-                        </label>
-                    </div>
-                </div>
-            </div>
             <div class="chat-log" id="chat-log" role="log" aria-live="polite"></div>
             <div class="chat-panel__attachments" id="chat-attachments" hidden></div>
             <div class="chat-panel__actions">

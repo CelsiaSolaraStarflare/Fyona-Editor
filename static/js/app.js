@@ -57,9 +57,7 @@ document.addEventListener('DOMContentLoaded', () => {
         chatAgentAllowEdits: document.getElementById('chat-agent-allow-edits'),
         chatAgentAllowWeb: document.getElementById('chat-agent-allow-web'),
         chatAgentPermissionSummary: document.getElementById('chat-agent-permission-summary'),
-        chatAgentOptions: document.getElementById('chat-agent-options'),
         chatAgentOptionsToggle: document.getElementById('chat-agent-options-toggle'),
-        chatAgentOptionsPanel: document.getElementById('chat-agent-options-panel'),
         chatResizeHandle: document.getElementById('chat-resize-handle'),
         chatTokenStats: document.getElementById('chat-token-stats'),
     };
@@ -2837,7 +2835,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function toggleAgentOptionsPanel(forceOpen) {
-        if (!els.chatAgentOptionsPanel || !els.chatAgentOptionsToggle) return;
+        if (!els.chatAgentOptionsToggle || !els.chatAgentIndicator) return;
         if (!state.chat.agentEnabled) {
             state.chat.optionsOpen = false;
             updateAgentPermissionsUI();
@@ -2880,6 +2878,7 @@ document.addEventListener('DOMContentLoaded', () => {
             state.chat.agentSnapshot = data.snapshot;
             state.chat.agentCanEdit = false;
             state.chat.agentAllowWeb = false;
+            state.chat.optionsOpen = false;
             pushChatMessage({
                 role: 'system',
                 content: 'Agent Mode enabled. The assistant can now inspect the project directory and layout JSON. Enable “Allow layout edits” when you want the agent to run commands.',
@@ -2911,9 +2910,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!els.chatAgentToggle) return;
         els.chatAgentToggle.classList.toggle('is-active', !!state.chat.agentEnabled);
         els.chatAgentToggle.textContent = state.chat.agentEnabled ? 'Agent Mode On' : 'Agent Mode Off';
-        if (els.chatAgentIndicator) {
-            els.chatAgentIndicator.hidden = !state.chat.agentEnabled;
-        }
         updateAgentPermissionsUI();
     }
 
@@ -2943,9 +2939,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
         }
-        if (els.chatAgentOptions) {
-            els.chatAgentOptions.hidden = !state.chat.agentEnabled;
-        }
         if (els.chatAgentOptionsToggle) {
             els.chatAgentOptionsToggle.disabled = !state.chat.agentEnabled;
             els.chatAgentOptionsToggle.setAttribute(
@@ -2953,8 +2946,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 state.chat.agentEnabled && state.chat.optionsOpen ? 'true' : 'false'
             );
         }
-        if (els.chatAgentOptionsPanel) {
-            els.chatAgentOptionsPanel.hidden = !(state.chat.agentEnabled && state.chat.optionsOpen);
+        if (els.chatAgentIndicator) {
+            els.chatAgentIndicator.hidden = !(state.chat.agentEnabled && state.chat.optionsOpen);
         }
         if (els.chatAgentPermissionSummary) {
             if (!state.chat.agentEnabled) {
