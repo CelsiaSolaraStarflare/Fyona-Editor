@@ -9,44 +9,64 @@
 <body>
     <div class="app">
         <header class="toolbar">
-            <div class="toolbar__group">
-                <label for="project-select">Project</label>
-                <select id="project-select"></select>
-                <button id="refresh-projects" class="btn btn--icon" title="Refresh projects">&#8635;</button>
+            <div class="toolbar__tabs" role="tablist" aria-label="Primary toolbar">
+                <button type="button" class="toolbar__tab is-active" role="tab" aria-selected="true" data-target="toolbar-project">Project</button>
+                <button type="button" class="toolbar__tab" role="tab" aria-selected="false" data-target="toolbar-canvas">Canvas</button>
+                <button type="button" class="toolbar__tab" role="tab" aria-selected="false" data-target="toolbar-blocks">Blocks</button>
+                <button type="button" class="toolbar__tab" role="tab" aria-selected="false" data-target="toolbar-export">Export</button>
             </div>
-            <div class="toolbar__group">
-                <label for="canvas-format">Canvas</label>
-                <select id="canvas-format">
-                    <option value="A5">A5</option>
-                    <option value="A4" selected>A4</option>
-                    <option value="A3">A3</option>
-                    <option value="Letter">Letter</option>
-                </select>
-                <button id="toggle-orientation" class="btn btn--icon" title="Toggle orientation">↺</button>
-                <span id="canvas-size-label" class="toolbar__hint"></span>
-            </div>
-            <div class="toolbar__group">
-                <label for="canvas-zoom">Zoom</label>
-                <div class="zoom-control">
-                    <button id="zoom-out" class="btn btn--icon" type="button" aria-label="Zoom out">−</button>
-                    <input id="canvas-zoom" type="range" min="0.5" max="5" step="0.1" value="1" aria-label="Canvas zoom">
-                    <button id="zoom-in" class="btn btn--icon" type="button" aria-label="Zoom in">+</button>
-                </div>
-                <span id="zoom-label" class="toolbar__hint">100%</span>
-            </div>
-            <div class="toolbar__group">
-                <button id="add-text" class="btn">Add Text</button>
-                <button id="add-image" class="btn">Add Image</button>
-                <button id="save-layout" class="btn btn--primary">Save Layout</button>
-                <label for="export-format" class="toolbar__hint">Export as</label>
-                <select id="export-format" class="export-format">
-                    <option value="pdf" selected>PDF</option>
-                    <option value="png">PNG</option>
-                    <option value="jpeg">JPEG</option>
-                    <option value="docx">Word (DOCX)</option>
-                    <option value="pptx">PowerPoint (PPTX)</option>
-                </select>
-                <button id="export-document" class="btn btn--secondary" type="button">Download</button>
+            <div class="toolbar__sections">
+                <section id="toolbar-project" class="toolbar__section toolbar__section--active" role="tabpanel">
+                    <div class="toolbar__group">
+                        <label for="project-select">Project</label>
+                        <select id="project-select"></select>
+                        <button id="refresh-projects" class="btn btn--icon" title="Refresh projects">&#8635;</button>
+                    </div>
+                    <div class="toolbar__group">
+                        <button id="save-layout" class="btn btn--primary">Save Layout</button>
+                    </div>
+                </section>
+                <section id="toolbar-canvas" class="toolbar__section" role="tabpanel" hidden>
+                    <div class="toolbar__group">
+                        <label for="canvas-format">Canvas</label>
+                        <select id="canvas-format">
+                            <option value="A5">A5</option>
+                            <option value="A4" selected>A4</option>
+                            <option value="A3">A3</option>
+                            <option value="Letter">Letter</option>
+                        </select>
+                        <button id="toggle-orientation" class="btn btn--icon" title="Toggle orientation">↺</button>
+                        <span id="canvas-size-label" class="toolbar__hint"></span>
+                    </div>
+                    <div class="toolbar__group">
+                        <label for="canvas-zoom">Zoom</label>
+                        <div class="zoom-control">
+                            <button id="zoom-out" class="btn btn--icon" type="button" aria-label="Zoom out">−</button>
+                            <input id="canvas-zoom" type="range" min="0.5" max="5" step="0.1" value="1" aria-label="Canvas zoom">
+                            <button id="zoom-in" class="btn btn--icon" type="button" aria-label="Zoom in">+</button>
+                        </div>
+                        <span id="zoom-label" class="toolbar__hint">100%</span>
+                    </div>
+                </section>
+                <section id="toolbar-blocks" class="toolbar__section" role="tabpanel" hidden>
+                    <div class="toolbar__group">
+                        <button id="add-text" class="btn">Add Text</button>
+                        <button id="add-image" class="btn">Add Image</button>
+                    </div>
+                </section>
+                <section id="toolbar-export" class="toolbar__section" role="tabpanel" hidden>
+                    <div class="toolbar__group">
+                        <label for="export-format" class="toolbar__hint">Export as</label>
+                        <select id="export-format" class="export-format">
+                            <option value="pdf" selected>PDF</option>
+                            <option value="png">PNG</option>
+                            <option value="jpeg">JPEG</option>
+                            <option value="docx">Word (DOCX)</option>
+                            <option value="pptx">PowerPoint (PPTX)</option>
+                        </select>
+                        <button id="export-document" class="btn btn--secondary" type="button">Download</button>
+                    </div>
+                </section>
             </div>
         </header>
 
@@ -84,6 +104,10 @@
                         <div class="field" id="text-style-options" hidden>
                             <label for="inspector-font">Font</label>
                             <select id="inspector-font"></select>
+                        </div>
+                        <div class="field" id="font-size-field" hidden>
+                            <label for="inspector-font-size">Font Size (px)</label>
+                            <input id="inspector-font-size" type="number" min="8" max="200" value="16">
                         </div>
                         <div class="field" id="image-options" hidden>
                             <label>Image Tools</label>
@@ -123,6 +147,29 @@
                             <label for="inspector-radius">Border Radius</label>
                             <input id="inspector-radius" type="number" min="0" max="120" value="12">
                         </div>
+                        <div class="field" id="margin-field">
+                            <label>Margins (px)</label>
+                            <div class="field--row">
+                                <div>
+                                    <label for="inspector-margin-top">Top</label>
+                                    <input id="inspector-margin-top" type="number" min="0" max="480" value="16">
+                                </div>
+                                <div>
+                                    <label for="inspector-margin-right">Right</label>
+                                    <input id="inspector-margin-right" type="number" min="0" max="480" value="16">
+                                </div>
+                            </div>
+                            <div class="field--row">
+                                <div>
+                                    <label for="inspector-margin-bottom">Bottom</label>
+                                    <input id="inspector-margin-bottom" type="number" min="0" max="480" value="16">
+                                </div>
+                                <div>
+                                    <label for="inspector-margin-left">Left</label>
+                                    <input id="inspector-margin-left" type="number" min="0" max="480" value="16">
+                                </div>
+                            </div>
+                        </div>
                         <div class="inspector__actions">
                             <button type="button" id="delete-block" class="btn btn--danger">Delete Block</button>
                         </div>
@@ -161,6 +208,7 @@
                     <button type="button" class="chat-close" id="chat-close" aria-label="Close assistant">×</button>
                 </div>
             </header>
+            <p class="chat-token-stats" id="chat-token-stats" aria-live="polite">Tokens: —</p>
             <div class="chat-agent-indicator" id="chat-agent-indicator" hidden>
                 <strong>Agent Mode enabled</strong>
                 <span id="chat-agent-permission-summary">The assistant can inspect your project files.</span>

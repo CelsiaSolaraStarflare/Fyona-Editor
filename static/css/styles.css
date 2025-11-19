@@ -102,11 +102,9 @@ body {
 
 .toolbar {
     display: flex;
-    justify-content: space-between;
-    align-items: center;
-    flex-wrap: wrap;
+    flex-direction: column;
+    align-items: stretch;
     gap: 16px;
-    row-gap: 12px;
     padding: 24px clamp(24px, 3vw, 40px);
     border-bottom: 1px solid rgba(255,255,255,0.35);
     background: linear-gradient(180deg, rgba(255,255,255,0.85), rgba(236,242,255,0.62));
@@ -118,6 +116,49 @@ body {
     display: flex;
     align-items: center;
     gap: 12px;
+    flex-wrap: wrap;
+}
+
+.toolbar__tabs {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}
+
+.toolbar__tab {
+    border: 1px solid rgba(61, 90, 241, 0.25);
+    background: rgba(255, 255, 255, 0.6);
+    color: var(--color-muted);
+    border-radius: 999px;
+    padding: 8px 18px;
+    font-size: 0.85rem;
+    font-weight: 600;
+    transition: background 150ms ease, color 150ms ease, box-shadow 150ms ease;
+}
+
+.toolbar__tab.is-active {
+    background: rgba(61, 90, 241, 0.15);
+    color: var(--color-text);
+    box-shadow: 0 6px 18px rgba(61, 90, 241, 0.18);
+}
+
+.toolbar__sections {
+    border-radius: 24px;
+    border: 1px solid rgba(61,90,241,0.15);
+    background: rgba(255,255,255,0.72);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.65), 0 10px 20px rgba(15,23,42,0.08);
+    padding: 18px clamp(16px, 2vw, 24px);
+}
+
+.toolbar__section {
+    display: none;
+    align-items: flex-end;
+    gap: 20px;
+    flex-wrap: wrap;
+}
+
+.toolbar__section--active {
+    display: flex;
 }
 
 .zoom-control {
@@ -455,7 +496,7 @@ select:focus {
     display: flex;
     flex-direction: column;
     justify-content: center;
-    padding: 16px;
+    padding: 0;
     border-radius: var(--radius-sm);
     background: rgba(255, 255, 255, 0.82);
     box-shadow: 0 12px 32px rgba(28, 35, 51, 0.12);
@@ -477,11 +518,31 @@ select:focus {
     justify-content: flex-start;
     align-items: flex-start;
     overflow: hidden;
+    box-sizing: border-box;
 }
 
 .block.selected {
     border: 2px solid rgba(61, 90, 241, 0.85);
     box-shadow: 0 16px 40px rgba(61, 90, 241, 0.25);
+}
+
+@keyframes agent-block-flash {
+    0% {
+        box-shadow: 0 0 0 0 rgba(61, 90, 241, 0.25);
+        filter: brightness(0.95);
+    }
+    40% {
+        box-shadow: 0 0 0 12px rgba(61, 90, 241, 0.15);
+        filter: brightness(1.15);
+    }
+    100% {
+        box-shadow: 0 0 0 0 rgba(61, 90, 241, 0);
+        filter: brightness(1);
+    }
+}
+
+.block--agent-flash {
+    animation: agent-block-flash 1s ease-out;
 }
 
 .block__content {
@@ -611,6 +672,14 @@ input:focus {
     display: grid;
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 12px;
+}
+
+#margin-field > .field--row {
+    margin-top: 8px;
+}
+
+#margin-field > .field--row:first-of-type {
+    margin-top: 4px;
 }
 
 #image-options .btn {
@@ -777,6 +846,14 @@ input:focus {
     margin: 2px 0 0;
     font-size: 0.8rem;
     color: var(--color-muted);
+}
+
+.chat-token-stats {
+    margin: 0 0 8px;
+    padding: 0 4px;
+    font-size: 0.78rem;
+    color: rgba(17,24,39,0.65);
+    text-align: right;
 }
 
 .chat-panel__header-actions {

@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from copy import deepcopy
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
 
 from terminal import TerminalCommandError, TerminalProcessor
@@ -24,6 +25,7 @@ class AgentToolContext:
     load_layout: Callable[[str], Dict[str, Any]]
     save_layout: Callable[[str, Dict[str, Any]], Dict[str, Any]]
     terminal_factory: Optional[Callable[[Dict[str, Any]], TerminalProcessor]] = None
+    project_root: Optional[Path] = None
 
 
 @dataclass
@@ -44,12 +46,13 @@ class ToolDefinition:
         }
 
 
-MAX_LAYOUT_CHARS = 20000
 MAX_TOOL_RESPONSE = 16000
 
 
-def _truncate(text: str, limit: int) -> str:
+def _truncate(text: str, limit: Optional[int]) -> str:
     snippet = (text or "").strip()
+    if limit is None or limit <= 0:
+        return snippet
     if len(snippet) <= limit:
         return snippet
     return f"{snippet[:limit]}… (+{len(snippet) - limit} more characters)"
@@ -71,13 +74,70 @@ def _summarize_layout(layout: Dict[str, Any]) -> str:
 
 def _handle_read_layout(context: AgentToolContext, params: Dict[str, Any]) -> ToolResult:
     layout = context.load_layout(context.project)
-    serialized = json.dumps(layout, indent=2, ensure_ascii=False)
+    pages = layout.get("pages") or []
+    payload: Any = deepcopy(layout)
+
+    def _find_page_by_id(page_id: str) -> Optional[Dict[str, Any]]:
+        for page in pages:
+            if str(page.get("id")) == str(page_id):
+                return page
+        return None
+
+    def _find_page_by_number(page_number: int) -> Optional[Dict[str, Any]]:
+        if page_number <= 0 or page_number > len(pages):
+            return None
+        return pages[page_number - 1]
+
+    filter_block_id = params.get("block_id")
+    filter_page_id = params.get("page_id")
+    filter_page_number = params.get("page")
+
+    resolved_page: Optional[Dict[str, Any]] = None
+    if filter_page_id:
+        resolved_page = _find_page_by_id(filter_page_id)
+    elif filter_page_number is not None:
+        try:
+            resolved_page = _find_page_by_number(int(filter_page_number))
+        except (TypeError, ValueError):
+            resolved_page = None
+
+    if filter_block_id:
+        block_payload = None
+        for page in pages:
+            for block in page.get("blocks") or []:
+                if block.get("id") == filter_block_id:
+                    block_payload = {
+                        "page": {
+                            "id": page.get("id"),
+                            "name": page.get("name"),
+                            "order": page.get("order"),
+                            "index": pages.index(page) + 1 if pages else None,
+                        },
+                        "block": deepcopy(block),
+                    }
+                    break
+            if block_payload:
+                break
+        if block_payload:
+            payload = block_payload
+    elif resolved_page:
+        payload = {
+            "page": deepcopy(resolved_page),
+            "page_index": pages.index(resolved_page) + 1 if resolved_page in pages else None,
+            "project": layout.get("project"),
+        }
+
+    serialized = json.dumps(payload, indent=2, ensure_ascii=False)
     limit = params.get("max_chars")
     try:
-        limit_value = int(limit) if limit is not None else MAX_LAYOUT_CHARS
+        limit_value = int(limit) if limit is not None else None
     except (TypeError, ValueError):
-        limit_value = MAX_LAYOUT_CHARS
-    return ToolResult(content=_truncate(serialized, max(limit_value, 512)))
+        limit_value = None
+    if limit_value is not None and limit_value < 0:
+        limit_value = None
+    if limit_value is not None:
+        limit_value = max(limit_value, 512)
+    return ToolResult(content=_truncate(serialized, limit_value))
 
 
 def _coerce_layout_payload(data: Any) -> Dict[str, Any]:
@@ -126,6 +186,38 @@ def _handle_terminal_command(context: AgentToolContext, params: Dict[str, Any]) 
     return ToolResult(content=_truncate(output, MAX_TOOL_RESPONSE), layout_changed=layout_changed)
 
 
+def _handle_write_project_file(context: AgentToolContext, params: Dict[str, Any]) -> ToolResult:
+    root = context.project_root
+    if root is None:
+        raise AgentToolError("Project root is unavailable; cannot write files.")
+    path_value = (params.get("path") or "").strip()
+    if not path_value:
+        raise AgentToolError("'path' is required when writing a project file.")
+    content = params.get("content")
+    if not isinstance(content, str):
+        raise AgentToolError("Provide the file contents as a string via 'content'.")
+    append = bool(params.get("append"))
+    target = (root / path_value).resolve()
+    try:
+        root_resolved = root.resolve()
+    except OSError as exc:  # pragma: no cover - filesystem guard
+        raise AgentToolError(f"Unable to access project root: {exc}") from exc
+    try:
+        target.relative_to(root_resolved)
+    except ValueError as exc:
+        raise AgentToolError("File path must stay inside the project directory.") from exc
+    try:
+        target.parent.mkdir(parents=True, exist_ok=True)
+        mode = "a" if append else "w"
+        with target.open(mode, encoding="utf-8") as handle:
+            handle.write(content)
+    except OSError as exc:  # pragma: no cover - filesystem guard
+        raise AgentToolError(f"Unable to write file: {exc}") from exc
+    operation = "Appended" if append else "Wrote"
+    snippet = content[:200] + ("…" if len(content) > 200 else "")
+    return ToolResult(content=f"{operation} {len(content)} characters to “{path_value}”.\nPreview:\n{snippet}")
+
+
 class AgentToolset:
     """Registry of function-callable tools for the AI agent."""
 
@@ -142,11 +234,24 @@ class AgentToolset:
                         "properties": {
                             "max_chars": {
                                 "type": "integer",
-                                "minimum": 256,
-                                "maximum": 60000,
-                                "description": "Limit for the size of the JSON snippet to return.",
-                            }
+                                "minimum": 0,
+                                "description": "Optional limit for the size of the JSON snippet; set to 0 to disable truncation.",
+                            },
+                            "page": {
+                                "type": "integer",
+                                "minimum": 1,
+                                "description": "Return only this 1-indexed page from the document.",
+                            },
+                            "page_id": {
+                                "type": "string",
+                                "description": "Return only the page whose ID matches this value.",
+                            },
+                            "block_id": {
+                                "type": "string",
+                                "description": "Return only the block (plus page context) with this ID.",
+                            },
                         },
+                        "additionalProperties": False,
                     },
                     handler=_handle_read_layout,
                 ),
@@ -169,7 +274,7 @@ class AgentToolset:
                 ToolDefinition(
                     name="run_terminal_command",
                     description=(
-                        "Execute a Fyona terminal command (e.g., add text blocks) to mutate the current layout."
+                        "Execute a Fyona terminal command (e.g., add text blocks, run `pages`, or `echo 2` to review captions)."
                     ),
                     parameters={
                         "type": "object",
@@ -182,6 +287,33 @@ class AgentToolset:
                         "required": ["command"],
                     },
                     handler=_handle_terminal_command,
+                ),
+                ToolDefinition(
+                    name="write_project_file",
+                    description=(
+                        "Write or append text to a file inside the current project. "
+                        "Useful for applying code fixes directly instead of returning patches."
+                    ),
+                    parameters={
+                        "type": "object",
+                        "properties": {
+                            "path": {
+                                "type": "string",
+                                "description": "Relative path (inside the project directory) to write.",
+                            },
+                            "content": {
+                                "type": "string",
+                                "description": "Exact file contents to write.",
+                            },
+                            "append": {
+                                "type": "boolean",
+                                "description": "Set true to append instead of replacing the file.",
+                            },
+                        },
+                        "required": ["path", "content"],
+                        "additionalProperties": False,
+                    },
+                    handler=_handle_write_project_file,
                 ),
             )
         }
@@ -203,4 +335,3 @@ class AgentToolset:
             except json.JSONDecodeError as exc:
                 raise AgentToolError(f"Invalid JSON arguments for {tool_name}: {exc}") from exc
         return tool.handler(self.context, params)
-

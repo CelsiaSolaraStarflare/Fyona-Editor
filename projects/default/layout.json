@@ -19,18 +19,24 @@
         "left": 48,
         "top": 47,
         "width": 698,
-        "height": 80
+        "height": 90
       },
       "backgroundColor": "#000000",
       "textColor": "#f8fafc",
       "borderRadius": 12,
       "imageUrl": null,
       "typography": {
-        "fontFamily": "inter",
+        "fontFamily": "playfair_display",
         "fontSize": 64,
         "fontWeight": 800,
         "letterSpacing": 0.08,
         "lineHeight": 1.05
+      },
+      "margin": {
+        "top": 5,
+        "right": 16,
+        "bottom": 16,
+        "left": 16
       }
     },
     {
@@ -38,8 +44,8 @@
       "type": "text",
       "content": "Designing the Future of Editorial Systems",
       "position": {
-        "left": 48,
-        "top": 136,
+        "left": 49,
+        "top": 152,
         "width": 700,
         "height": 161
       },
@@ -53,6 +59,12 @@
         "fontWeight": 400,
         "letterSpacing": 0,
         "lineHeight": 1.5
+      },
+      "margin": {
+        "top": 16,
+        "right": 16,
+        "bottom": 16,
+        "left": 16
       }
     },
     {
@@ -76,6 +88,12 @@
         "letterSpacing": 0.16,
         "lineHeight": 1.4,
         "transform": "uppercase"
+      },
+      "margin": {
+        "top": 16,
+        "right": 16,
+        "bottom": 16,
+        "left": 16
       }
     }
   ],
@@ -93,18 +111,24 @@
             "left": 48,
             "top": 47,
             "width": 698,
-            "height": 80
+            "height": 90
           },
           "backgroundColor": "#000000",
           "textColor": "#f8fafc",
           "borderRadius": 12,
           "imageUrl": null,
           "typography": {
-            "fontFamily": "inter",
+            "fontFamily": "playfair_display",
             "fontSize": 64,
             "fontWeight": 800,
             "letterSpacing": 0.08,
             "lineHeight": 1.05
+          },
+          "margin": {
+            "top": 5,
+            "right": 16,
+            "bottom": 16,
+            "left": 16
           }
         },
         {
@@ -112,8 +136,8 @@
           "type": "text",
           "content": "Designing the Future of Editorial Systems",
           "position": {
-            "left": 48,
-            "top": 136,
+            "left": 49,
+            "top": 152,
             "width": 700,
             "height": 161
           },
@@ -127,6 +151,12 @@
             "fontWeight": 400,
             "letterSpacing": 0,
             "lineHeight": 1.5
+          },
+          "margin": {
+            "top": 16,
+            "right": 16,
+            "bottom": 16,
+            "left": 16
           }
         },
         {
@@ -150,6 +180,12 @@
             "letterSpacing": 0.16,
             "lineHeight": 1.4,
             "transform": "uppercase"
+          },
+          "margin": {
+            "top": 16,
+            "right": 16,
+            "bottom": 16,
+            "left": 16
           }
         }
       ],
@@ -177,7 +213,7 @@
             "left": 48,
             "top": 48,
             "width": 384,
-            "height": 48
+            "height": 50
           },
           "backgroundColor": "#050816",
           "textColor": "#f8fafc",
@@ -189,6 +225,12 @@
             "fontWeight": 700,
             "letterSpacing": 0.04,
             "lineHeight": 1.2
+          },
+          "margin": {
+            "top": 16,
+            "right": 16,
+            "bottom": 16,
+            "left": 16
           }
         },
         {
@@ -199,7 +241,7 @@
             "left": 48,
             "top": 108,
             "width": 384,
-            "height": 120
+            "height": 140
           },
           "backgroundColor": "#050816",
           "textColor": "#cbd5f5",
@@ -211,6 +253,12 @@
             "fontWeight": 400,
             "letterSpacing": 0,
             "lineHeight": 1.5
+          },
+          "margin": {
+            "top": 16,
+            "right": 16,
+            "bottom": 16,
+            "left": 16
           }
         },
         {
@@ -227,7 +275,15 @@
           "textColor": "#f8fafc",
           "borderRadius": 8,
           "imageUrl": "media/Weixin_Image_2025-11-16_234718_437-358aa4b1ad.png",
-          "typography": {}
+          "typography": {
+            "fontSize": 16
+          },
+          "margin": {
+            "top": 0,
+            "right": 0,
+            "bottom": 0,
+            "left": 0
+          }
         },
         {
           "id": "block-canvas-caption",
@@ -237,7 +293,7 @@
             "left": 456,
             "top": 252,
             "width": 192,
-            "height": 24
+            "height": 40
           },
           "backgroundColor": "#050816",
           "textColor": "#475569",
@@ -250,6 +306,12 @@
             "letterSpacing": 0.16,
             "lineHeight": 1.4,
             "transform": "uppercase"
+          },
+          "margin": {
+            "top": 8,
+            "right": 8,
+            "bottom": 8,
+            "left": 8
           }
         },
         {
@@ -266,7 +328,15 @@
           "textColor": "#000000",
           "borderRadius": 0,
           "imageUrl": null,
-          "typography": {}
+          "typography": {
+            "fontSize": 16
+          },
+          "margin": {
+            "top": 16,
+            "right": 16,
+            "bottom": 16,
+            "left": 16
+          }
         }
       ],
       "dimensions": {

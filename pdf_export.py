@@ -355,16 +355,23 @@ def _sort_blocks(blocks: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return sorted(blocks or [], key=sort_key)
 
 
-def _text_padding_for_block(block: Dict[str, Any]) -> float:
-    if block.get("type") == "image":
-        return 0.0
-    padding = block.get("padding")
-    if padding is None:
-        return TEXT_PADDING
-    return max(0.0, _coerce_float(padding, TEXT_PADDING))
+def _resolve_block_margins(block: Dict[str, Any]) -> Tuple[float, float, float, float]:
+    margin = block.get("margin")
+    block_type = str(block.get("type") or "text").lower()
+    fallback = 0.0 if block_type == "image" else TEXT_PADDING
+    if isinstance(margin, dict):
+        top = max(0.0, _coerce_float(margin.get("top"), fallback))
+        right = max(0.0, _coerce_float(margin.get("right"), fallback))
+        bottom = max(0.0, _coerce_float(margin.get("bottom"), fallback))
+        left = max(0.0, _coerce_float(margin.get("left"), fallback))
+        return (top, right, bottom, left)
+    if margin is not None:
+        uniform = max(0.0, _coerce_float(margin, fallback))
+        return (uniform, uniform, uniform, uniform)
+    return (fallback, fallback, fallback, fallback)
 
 
-def _draw_text_block(pdf: canvas.Canvas, block: Dict[str, Any], rect: Rect, padding: float) -> bool:
+def _draw_text_block(pdf: canvas.Canvas, block: Dict[str, Any], rect: Rect, margins: Tuple[float, float, float, float]) -> bool:
     text = _sanitize_text(block.get("content"))
     if text == "":
         # Allow empty text blocks – they may just be colored rectangles.
@@ -394,8 +401,9 @@ def _draw_text_block(pdf: canvas.Canvas, block: Dict[str, Any], rect: Rect, padd
         allowOrphans=1,
     )
 
-    inner_width = rect.width - (padding * 2)
-    inner_height = rect.height - (padding * 2)
+    top_margin, right_margin, bottom_margin, left_margin = margins
+    inner_width = rect.width - (left_margin + right_margin)
+    inner_height = rect.height - (top_margin + bottom_margin)
     if inner_width <= 0 or inner_height <= 0:
         return False
 
@@ -403,41 +411,64 @@ def _draw_text_block(pdf: canvas.Canvas, block: Dict[str, Any], rect: Rect, padd
     available_width = max(inner_width, 1)
     available_height = max(inner_height, 1)
     width, height = paragraph.wrap(available_width, available_height)
-    draw_x = padding
-    draw_y = padding + max(available_height - height, 0)
+    draw_x = left_margin
+    draw_y = bottom_margin + max(available_height - height, 0)
     paragraph.drawOn(pdf, draw_x, draw_y)
     return True
 
 
-def _draw_image_placeholder(pdf: canvas.Canvas, block: Dict[str, Any], rect: Rect) -> None:
+def _draw_image_placeholder(pdf: canvas.Canvas, block: Dict[str, Any], rect: Rect, margins: Tuple[float, float, float, float]) -> None:
+    top_margin, right_margin, bottom_margin, left_margin = margins
+    inner_width = rect.width - (left_margin + right_margin)
+    inner_height = rect.height - (top_margin + bottom_margin)
+    if inner_width <= 0 or inner_height <= 0:
+        return
+    pdf.saveState()
+    pdf.translate(left_margin, bottom_margin)
     pdf.setStrokeColorRGB(0.7, 0.72, 0.76)
     pdf.setLineWidth(1)
-    pdf.rect(4, 4, rect.width - 8, rect.height - 8, stroke=1, fill=0)
+    pdf.rect(4, 4, max(inner_width - 8, 1), max(inner_height - 8, 1), stroke=1, fill=0)
     pdf.setFont(DEFAULT_FONT_BOLD, 12)
     label = block.get("content") or "Image"
-    pdf.drawCentredString(rect.width / 2, rect.height / 2 - 6, label[:64])
+    pdf.drawCentredString(inner_width / 2, inner_height / 2 - 6, label[:64])
+    pdf.restoreState()
 
 
-def _draw_image_block(pdf: canvas.Canvas, block: Dict[str, Any], rect: Rect, image: ImageReader, border_radius: float) -> None:
+def _draw_image_block(
+    pdf: canvas.Canvas,
+    block: Dict[str, Any],
+    rect: Rect,
+    image: ImageReader,
+    border_radius: float,
+    margins: Tuple[float, float, float, float],
+) -> None:
+    top_margin, right_margin, bottom_margin, left_margin = margins
+    inner_width = rect.width - (left_margin + right_margin)
+    inner_height = rect.height - (top_margin + bottom_margin)
+    if inner_width <= 0 or inner_height <= 0:
+        _draw_image_placeholder(pdf, block, rect, margins)
+        return
     pdf.saveState()
+    pdf.translate(left_margin, bottom_margin)
     path = pdf.beginPath()
-    if border_radius > 0:
-        path.roundRect(0, 0, rect.width, rect.height, border_radius)
+    effective_radius = min(border_radius, min(inner_width, inner_height) / 2)
+    if effective_radius > 0:
+        path.roundRect(0, 0, inner_width, inner_height, effective_radius)
     else:
-        path.rect(0, 0, rect.width, rect.height)
+        path.rect(0, 0, inner_width, inner_height)
     pdf.clipPath(path, stroke=0, fill=0)
 
     img_width, img_height = image.getSize()
     if img_width <= 0 or img_height <= 0:
         pdf.restoreState()
-        _draw_image_placeholder(pdf, block, rect)
+        _draw_image_placeholder(pdf, block, rect, margins)
         return
     # cover-style scale
-    scale = max(rect.width / img_width, rect.height / img_height)
+    scale = max(inner_width / img_width, inner_height / img_height)
     draw_width = img_width * scale
     draw_height = img_height * scale
-    offset_x = (rect.width - draw_width) / 2
-    offset_y = (rect.height - draw_height) / 2
+    offset_x = (inner_width - draw_width) / 2
+    offset_y = (inner_height - draw_height) / 2
     pdf.drawImage(
         image,
         offset_x,
@@ -466,7 +497,7 @@ def _draw_block(
     block_type = str(block.get("type") or "text").lower()
 
     image_reader = _resolve_image_reader(block, asset_root)
-    padding = _text_padding_for_block(block)
+    margins = _resolve_block_margins(block)
 
     pdf.saveState()
     if rotation:
@@ -488,13 +519,13 @@ def _draw_block(
 
     rendered_type: Optional[str] = None
     if block_type == "image" and image_reader:
-        _draw_image_block(pdf, block, rect, image_reader, border_radius)
+        _draw_image_block(pdf, block, rect, image_reader, border_radius, margins)
         rendered_type = "image"
     elif block_type == "image":
-        _draw_image_placeholder(pdf, block, rect)
+        _draw_image_placeholder(pdf, block, rect, margins)
         rendered_type = "image"
     else:
-        if _draw_text_block(pdf, block, rect, padding):
+        if _draw_text_block(pdf, block, rect, margins):
             rendered_type = "text"
         else:
             rendered_type = None

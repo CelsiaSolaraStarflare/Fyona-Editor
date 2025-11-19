@@ -19,6 +19,7 @@ document.addEventListener('DOMContentLoaded', () => {
         inspectorContent: document.getElementById('inspector-content'),
         textOptions: document.getElementById('text-style-options'),
         inspectorFont: document.getElementById('inspector-font'),
+        inspectorFontSize: document.getElementById('inspector-font-size'),
         inspectorLeft: document.getElementById('inspector-left'),
         inspectorTop: document.getElementById('inspector-top'),
         inspectorWidth: document.getElementById('inspector-width'),
@@ -26,6 +27,10 @@ document.addEventListener('DOMContentLoaded', () => {
         inspectorBg: document.getElementById('inspector-bg'),
         inspectorFg: document.getElementById('inspector-fg'),
         inspectorRadius: document.getElementById('inspector-radius'),
+        inspectorMarginTop: document.getElementById('inspector-margin-top'),
+        inspectorMarginRight: document.getElementById('inspector-margin-right'),
+        inspectorMarginBottom: document.getElementById('inspector-margin-bottom'),
+        inspectorMarginLeft: document.getElementById('inspector-margin-left'),
         deleteBlock: document.getElementById('delete-block'),
         toastTemplate: document.getElementById('toast-template'),
         canvasFormat: document.getElementById('canvas-format'),
@@ -52,6 +57,7 @@ document.addEventListener('DOMContentLoaded', () => {
         chatAgentAllowEdits: document.getElementById('chat-agent-allow-edits'),
         chatAgentPermissionSummary: document.getElementById('chat-agent-permission-summary'),
         chatResizeHandle: document.getElementById('chat-resize-handle'),
+        chatTokenStats: document.getElementById('chat-token-stats'),
     };
 
     const params = new URLSearchParams(window.location.search);
@@ -81,6 +87,13 @@ document.addEventListener('DOMContentLoaded', () => {
             agentCanEdit: false,
             panelSize: null,
             resizing: false,
+            progress: {
+                id: null,
+                timer: null,
+                messageId: null,
+                lastStatus: null,
+                historyLength: 0,
+            },
         },
         terminal: {
             element: null,
@@ -92,6 +105,14 @@ document.addEventListener('DOMContentLoaded', () => {
             isOpen: false,
             isBusy: false,
         },
+        agentHighlightQueue: [],
+        agentHighlightActive: false,
+        tokenStats: {
+            sessionTokens: 0,
+            lifetimeTokens: 0,
+            sessionImages: 0,
+            lifetimeImages: 0,
+        },
     };
 
     const FONT_OPTIONS = [
@@ -102,6 +123,13 @@ document.addEventListener('DOMContentLoaded', () => {
     ];
 
     const DEFAULT_FONT_VALUE = FONT_OPTIONS[0].value;
+    const DEFAULT_FONT_SIZE = 16;
+    const FONT_SIZE_LIMITS = { min: 8, max: 200 };
+    const DEFAULT_MARGINS = {
+        text: { top: 16, right: 16, bottom: 16, left: 16 },
+        image: { top: 0, right: 0, bottom: 0, left: 0 },
+    };
+    const MARGIN_LIMITS = { min: 0, max: 480 };
 
     const CANVAS_PRESETS = {
         A5: { width: 559, height: 794 },
@@ -144,8 +172,10 @@ document.addEventListener('DOMContentLoaded', () => {
     init();
 
     async function init() {
+        renderTokenStats();
         configureZoomControl();
         initFontOptions();
+        initToolbarTabs();
         bindUIEvents();
         initChatInterface();
         window.addEventListener('resize', () => {
@@ -156,6 +186,7 @@ document.addEventListener('DOMContentLoaded', () => {
         setCanvasZoom(state.zoom);
         await loadProjects();
         await loadLayout(state.project);
+        await loadTokenStats();
     }
 
     function configureZoomControl() {
@@ -164,6 +195,48 @@ document.addEventListener('DOMContentLoaded', () => {
         els.canvasZoom.max = ZOOM_CONFIG.max;
         els.canvasZoom.step = ZOOM_CONFIG.step;
         els.canvasZoom.value = state.zoom;
+    }
+
+    function initToolbarTabs() {
+        const tabs = Array.from(document.querySelectorAll('.toolbar__tab'));
+        const sections = Array.from(document.querySelectorAll('.toolbar__section'));
+        if (!tabs.length || !sections.length) return;
+
+        const activate = (targetId) => {
+            if (!targetId) return;
+            tabs.forEach((tab) => {
+                const isActive = tab.dataset.target === targetId;
+                tab.classList.toggle('is-active', isActive);
+                tab.setAttribute('aria-selected', isActive ? 'true' : 'false');
+                tab.setAttribute('tabindex', isActive ? '0' : '-1');
+            });
+            sections.forEach((section) => {
+                const match = section.id === targetId;
+                section.classList.toggle('toolbar__section--active', match);
+                if (match) {
+                    section.removeAttribute('hidden');
+                } else {
+                    section.setAttribute('hidden', 'hidden');
+                }
+            });
+        };
+
+        tabs.forEach((tab, index) => {
+            if (!tab.hasAttribute('tabindex')) {
+                tab.setAttribute('tabindex', index === 0 ? '0' : '-1');
+            }
+            tab.addEventListener('click', () => activate(tab.dataset.target));
+            tab.addEventListener('keydown', (event) => {
+                if (event.key !== 'Enter' && event.key !== ' ') return;
+                event.preventDefault();
+                activate(tab.dataset.target);
+            });
+        });
+
+        const firstActive = tabs.find((tab) => tab.classList.contains('is-active')) || tabs[0];
+        if (firstActive) {
+            activate(firstActive.dataset.target);
+        }
     }
 
     function initFontOptions() {
@@ -238,10 +311,30 @@ document.addEventListener('DOMContentLoaded', () => {
             });
         }
 
+        if (els.inspectorFontSize) {
+            const handleFontSizeUpdate = (persist) => {
+                const block = getSelectedBlock();
+                if (!block || block.type === 'image') return;
+                const value = normalizeFontSizeValue(els.inspectorFontSize.value);
+                block.typography = { ...(block.typography || {}), fontSize: value };
+                els.inspectorFontSize.value = value;
+                applyBlockTypography(block);
+                if (persist) {
+                    persistBlock(block.id, { typography: { ...block.typography } });
+                }
+            };
+            els.inspectorFontSize.addEventListener('input', () => handleFontSizeUpdate(false));
+            els.inspectorFontSize.addEventListener('change', () => handleFontSizeUpdate(true));
+        }
+
         bindNumericInput(els.inspectorLeft, 'left');
         bindNumericInput(els.inspectorTop, 'top');
         bindNumericInput(els.inspectorWidth, 'width', 40);
         bindNumericInput(els.inspectorHeight, 'height', 40);
+        bindMarginInput(els.inspectorMarginTop, 'top');
+        bindMarginInput(els.inspectorMarginRight, 'right');
+        bindMarginInput(els.inspectorMarginBottom, 'bottom');
+        bindMarginInput(els.inspectorMarginLeft, 'left');
 
         els.inspectorBg.addEventListener('input', () => {
             const block = getSelectedBlock();
@@ -346,6 +439,25 @@ document.addEventListener('DOMContentLoaded', () => {
         });
     }
 
+    function bindMarginInput(input, side) {
+        if (!input) return;
+        const updateMargin = (persist) => {
+            const block = getSelectedBlock();
+            if (!block) return;
+            const margin = ensureBlockMargin(block);
+            const value = normalizeMarginValue(input.value, margin[side]);
+            margin[side] = value;
+            block.margin = { ...margin };
+            input.value = value;
+            applyBlockAppearance(block);
+            if (persist) {
+                persistBlock(block.id, { margin: { ...block.margin } });
+            }
+        };
+        input.addEventListener('input', () => updateMargin(false));
+        input.addEventListener('change', () => updateMargin(true));
+    }
+
     async function loadProjects(showToastMessage = false) {
         try {
             const response = await fetch('/api/projects');
@@ -374,6 +486,57 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             els.projectSelect.appendChild(option);
         });
+    }
+
+    async function loadTokenStats() {
+        try {
+            const response = await fetch('/api/chat/token-stats');
+            if (!response.ok) throw new Error('Failed to fetch token stats');
+            const data = await response.json();
+            if (data.success && data.stats) {
+                updateTokenStats(data.stats);
+            }
+        } catch (error) {
+            console.warn('Unable to load token stats', error);
+        }
+    }
+
+    function updateTokenStats(stats) {
+        if (!stats) return;
+        state.tokenStats = {
+            sessionTokens: stats.sessionTokens ?? state.tokenStats.sessionTokens,
+            lifetimeTokens: stats.lifetimeTokens ?? state.tokenStats.lifetimeTokens,
+            sessionImages: stats.sessionImages ?? state.tokenStats.sessionImages,
+            lifetimeImages: stats.lifetimeImages ?? state.tokenStats.lifetimeImages,
+        };
+        renderTokenStats();
+    }
+
+    function renderTokenStats() {
+        if (!els.chatTokenStats) return;
+        const stats = state.tokenStats;
+        if (!stats) {
+            els.chatTokenStats.textContent = 'Tokens: —';
+            return;
+        }
+        const sessionTokens = stats.sessionTokens ?? 0;
+        const lifetimeTokens = stats.lifetimeTokens ?? 0;
+        const sessionImages = formatBytes(stats.sessionImages ?? 0);
+        const lifetimeImages = formatBytes(stats.lifetimeImages ?? 0);
+        els.chatTokenStats.textContent = `Session tokens: ${sessionTokens.toLocaleString()} • Total: ${lifetimeTokens.toLocaleString()} • Images: ${sessionImages} (Total ${lifetimeImages})`;
+    }
+
+    function formatBytes(bytes) {
+        const value = Number(bytes) || 0;
+        if (value <= 0) return '0 B';
+        const units = ['B', 'KB', 'MB', 'GB'];
+        let index = 0;
+        let sized = value;
+        while (sized >= 1024 && index < units.length - 1) {
+            sized /= 1024;
+            index += 1;
+        }
+        return `${sized >= 10 ? Math.round(sized) : sized.toFixed(1)} ${units[index]}`;
     }
 
     async function loadLayout(project) {
@@ -441,22 +604,83 @@ document.addEventListener('DOMContentLoaded', () => {
         return `page-${Math.random().toString(16).slice(2, 10)}`;
     }
 
+    function defaultMarginForType(type) {
+        const key = typeof type === 'string' && type.toLowerCase() === 'image' ? 'image' : 'text';
+        const fallback = DEFAULT_MARGINS[key] || DEFAULT_MARGINS.text;
+        return { ...fallback };
+    }
+
+    function normalizeMarginValue(value, fallback) {
+        const numeric = Math.round(Number(value));
+        if (!Number.isFinite(numeric)) {
+            return clampNumber(fallback, MARGIN_LIMITS.min, MARGIN_LIMITS.max);
+        }
+        return clampNumber(numeric, MARGIN_LIMITS.min, MARGIN_LIMITS.max);
+    }
+
+    function normalizeMargin(rawMargin, type) {
+        const base = defaultMarginForType(type);
+        if (rawMargin == null) {
+            return base;
+        }
+        if (typeof rawMargin === 'number' || (typeof rawMargin === 'string' && rawMargin.trim() !== '')) {
+            const value = normalizeMarginValue(rawMargin, base.top);
+            return { top: value, right: value, bottom: value, left: value };
+        }
+        if (typeof rawMargin === 'object') {
+            const margin = { ...base };
+            ['top', 'right', 'bottom', 'left'].forEach((side) => {
+                if (side in rawMargin) {
+                    margin[side] = normalizeMarginValue(rawMargin[side], margin[side]);
+                }
+            });
+            return margin;
+        }
+        return base;
+    }
+
+    function ensureBlockMargin(block) {
+        if (!block.margin || typeof block.margin !== 'object') {
+            block.margin = normalizeMargin(null, block.type);
+        } else {
+            block.margin = normalizeMargin(block.margin, block.type);
+        }
+        return block.margin;
+    }
+
+    function normalizeFontSizeValue(value) {
+        const numeric = Number(value);
+        if (!Number.isFinite(numeric) || numeric <= 0) {
+            return DEFAULT_FONT_SIZE;
+        }
+        return clampNumber(Math.round(numeric), FONT_SIZE_LIMITS.min, FONT_SIZE_LIMITS.max);
+    }
+
     function normalizeBlock(block) {
         const position = block.position || {};
         const id = block.id || generateClientId();
+        const type = typeof block.type === 'string' && block.type.trim() ? block.type : 'text';
         const typography = (block.typography && typeof block.typography === 'object')
             ? { ...block.typography }
             : {};
         typography.fontFamily = sanitizeFontValue(typography.fontFamily);
+        if (type !== 'image') {
+            typography.fontSize = normalizeFontSizeValue(typography.fontSize ?? DEFAULT_FONT_SIZE);
+        } else if (typography.fontSize != null) {
+            typography.fontSize = normalizeFontSizeValue(typography.fontSize);
+        }
+        const marginSource = block.margin ?? block.padding ?? null;
+        const margin = normalizeMargin(marginSource, type);
         return {
             id,
-            type: block.type || 'text',
+            type,
             content: block.content ?? '',
             backgroundColor: block.backgroundColor ?? '#ffffff',
             textColor: block.textColor ?? '#1c2333',
             borderRadius: typeof block.borderRadius === 'number' ? block.borderRadius : 12,
             imageUrl: block.imageUrl || null,
             typography,
+            margin,
             position: {
                 left: Math.round(Number(position.left) || 0),
                 top: Math.round(Number(position.top) || 0),
@@ -870,7 +1094,8 @@ document.addEventListener('DOMContentLoaded', () => {
                 textColor: '#1c2333',
                 borderRadius: 12,
                 imageUrl: null,
-                typography: { fontFamily: DEFAULT_FONT_VALUE },
+                typography: { fontFamily: DEFAULT_FONT_VALUE, fontSize: DEFAULT_FONT_SIZE },
+                margin: defaultMarginForType(type),
             },
         };
 
@@ -1118,6 +1343,7 @@ document.addEventListener('DOMContentLoaded', () => {
         element.style.background = block.backgroundColor || '#ffffff';
         element.style.color = block.textColor || '#1c2333';
         element.style.borderRadius = `${block.borderRadius ?? 12}px`;
+        applyBlockSpacing(block, element);
         applyBlockContent(block, element);
     }
 
@@ -1150,12 +1376,26 @@ document.addEventListener('DOMContentLoaded', () => {
         applyBlockTypography(block, element);
     }
 
+    function applyBlockSpacing(block, element = state.blockElements.get(block.id)) {
+        if (!element) return;
+        const wrapper = element.querySelector('.block__content-wrapper');
+        if (!wrapper) return;
+        const margin = ensureBlockMargin(block);
+        wrapper.style.paddingTop = `${margin.top}px`;
+        wrapper.style.paddingRight = `${margin.right}px`;
+        wrapper.style.paddingBottom = `${margin.bottom}px`;
+        wrapper.style.paddingLeft = `${margin.left}px`;
+    }
+
     function applyBlockTypography(block, element = state.blockElements.get(block.id)) {
         if (!element || block.type === 'image') return;
         const contentEl = element.querySelector('.block__content');
         if (!contentEl) return;
         const fontOption = getFontOption(block.typography?.fontFamily);
         contentEl.style.fontFamily = fontOption.css;
+        const fontSize = normalizeFontSizeValue(block.typography?.fontSize ?? DEFAULT_FONT_SIZE);
+        block.typography = { ...(block.typography || {}), fontSize };
+        contentEl.style.fontSize = `${fontSize}px`;
     }
 
     function updateInspector(block) {
@@ -1191,6 +1431,16 @@ document.addEventListener('DOMContentLoaded', () => {
             els.inspectorFont.value = fontValue;
             els.inspectorFont.disabled = isImage;
         }
+        if (els.inspectorFontSize) {
+            const sizeValue = normalizeFontSizeValue(block.typography?.fontSize ?? DEFAULT_FONT_SIZE);
+            block.typography = { ...(block.typography || {}), fontSize: sizeValue };
+            els.inspectorFontSize.value = sizeValue;
+            els.inspectorFontSize.disabled = isImage;
+            const fontSizeField = els.inspectorFontSize.closest('.field');
+            if (fontSizeField) {
+                fontSizeField.hidden = isImage;
+            }
+        }
         els.inspectorLeft.value = block.position.left;
         els.inspectorTop.value = block.position.top;
         els.inspectorWidth.value = block.position.width;
@@ -1198,6 +1448,11 @@ document.addEventListener('DOMContentLoaded', () => {
         els.inspectorBg.value = toHexColor(block.backgroundColor ?? '#ffffff');
         els.inspectorFg.value = toHexColor(block.textColor ?? '#1c2333');
         els.inspectorRadius.value = block.borderRadius ?? 12;
+        const margin = ensureBlockMargin(block);
+        if (els.inspectorMarginTop) els.inspectorMarginTop.value = margin.top;
+        if (els.inspectorMarginRight) els.inspectorMarginRight.value = margin.right;
+        if (els.inspectorMarginBottom) els.inspectorMarginBottom.value = margin.bottom;
+        if (els.inspectorMarginLeft) els.inspectorMarginLeft.value = margin.left;
     }
 
     function toHexColor(value) {
@@ -1687,6 +1942,10 @@ document.addEventListener('DOMContentLoaded', () => {
     async function sendMessageToAssistant(text, attachments) {
         state.chat.sending = true;
         setChatStatus('Contacting assistant…');
+        const progressToken = state.chat.agentEnabled ? generateProgressToken() : null;
+        if (progressToken) {
+            startAgentProgressWatcher(progressToken);
+        }
         try {
             const response = await fetch('/api/chat', {
                 method: 'POST',
@@ -1705,6 +1964,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     agentPermissions: {
                         allowLayoutEdits: !!state.chat.agentCanEdit,
                     },
+                    progressToken,
                 }),
             });
             if (!response.ok) {
@@ -1746,8 +2006,19 @@ document.addEventListener('DOMContentLoaded', () => {
                 });
             }
             if (data.actions?.layoutUpdated) {
+                const previousLayout = cloneLayout(state.layout);
                 await loadLayout(state.project);
+                if (previousLayout && state.layout) {
+                    const highlightPlan = diffLayouts(previousLayout, state.layout);
+                    queueAgentHighlights(highlightPlan);
+                }
                 showToast('Agent updated layout.json');
+            }
+            if (data.tokenStats) {
+                updateTokenStats(data.tokenStats);
+            }
+            if (progressToken || data.progressToken) {
+                await finalizeAgentProgressWatcher(data.progressToken || progressToken);
             }
             setChatStatus('Assistant ready');
         } catch (error) {
@@ -1758,6 +2029,7 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             showToast(error.message || 'Assistant unavailable', true);
             setChatStatus('Assistant unavailable');
+            stopAgentProgressWatcher('Assistant unavailable.');
         } finally {
             state.chat.sending = false;
         }
@@ -1768,6 +2040,18 @@ document.addEventListener('DOMContentLoaded', () => {
         const truncated = traceItems.length > CHAT_TRACE_STEP_LIMIT;
         const lines = [];
         let stepCounter = 0;
+        let pendingDetail = '';
+        let pendingCount = 0;
+
+        const flushPending = () => {
+            if (!pendingDetail) return;
+            stepCounter += 1;
+            const suffix = pendingCount > 1 ? ` ×${pendingCount}` : '';
+            lines.push(`${stepCounter}. ${pendingDetail}${suffix}`);
+            pendingDetail = '';
+            pendingCount = 0;
+        };
+
         traceItems.slice(0, CHAT_TRACE_STEP_LIMIT).forEach((entry) => {
             if (!entry || typeof entry !== 'object') return;
             const kind = String(entry.kind || '').toLowerCase();
@@ -1787,9 +2071,15 @@ document.addEventListener('DOMContentLoaded', () => {
                 detail = `⚠ ${warning || 'Agent stopped before finishing.'}`;
             }
             if (!detail) return;
-            stepCounter += 1;
-            lines.push(`${stepCounter}. ${detail}`);
+            if (detail === pendingDetail) {
+                pendingCount += 1;
+                return;
+            }
+            flushPending();
+            pendingDetail = detail;
+            pendingCount = 1;
         });
+        flushPending();
         if (!lines.length) {
             return '';
         }
@@ -1820,6 +2110,237 @@ document.addEventListener('DOMContentLoaded', () => {
             state.chat.messages = state.chat.messages.slice(-200);
         }
         renderChatMessages();
+        return payload;
+    }
+
+    function cloneLayout(layout) {
+        if (!layout) return null;
+        try {
+            return structuredClone(layout);
+        } catch (error) {
+            return JSON.parse(JSON.stringify(layout));
+        }
+    }
+
+    function diffLayouts(previous, next) {
+        if (!previous || !next) return [];
+        const prevPages = new Map();
+        const nextPages = new Map();
+        getPagesFromLayout(previous).forEach((page) => {
+            if (page && page.id) {
+                prevPages.set(page.id, page);
+            }
+        });
+        getPagesFromLayout(next).forEach((page) => {
+            if (page && page.id) {
+                nextPages.set(page.id, page);
+            }
+        });
+        const changes = [];
+        nextPages.forEach((page, pageId) => {
+            const prevPage = prevPages.get(pageId);
+            const changedBlocks = diffPageBlocks(prevPage, page);
+            if (changedBlocks.length) {
+                changes.push({ pageId, blockIds: changedBlocks });
+            }
+        });
+        return changes;
+    }
+
+    function diffPageBlocks(prevPage, nextPage) {
+        const changed = [];
+        const prevBlocks = Array.isArray(prevPage?.blocks) ? prevPage.blocks : [];
+        const nextBlocks = Array.isArray(nextPage?.blocks) ? nextPage.blocks : [];
+        const prevMap = new Map(prevBlocks.map((block) => [block?.id, block]));
+        nextBlocks.forEach((block) => {
+            if (!block?.id) return;
+            const prev = prevMap.get(block.id);
+            if (!prev) {
+                changed.push(block.id);
+                return;
+            }
+            if (!blocksEquivalent(prev, block)) {
+                changed.push(block.id);
+            }
+        });
+        return changed;
+    }
+
+    function blocksEquivalent(a, b) {
+        const keys = [
+            'type',
+            'content',
+            'backgroundColor',
+            'textColor',
+            'borderRadius',
+            'imageUrl',
+        ];
+        for (const key of keys) {
+            if ((a?.[key] || null) !== (b?.[key] || null)) {
+                return false;
+            }
+        }
+        const posKeys = ['left', 'top', 'width', 'height'];
+        for (const key of posKeys) {
+            if ((a?.position?.[key] || 0) !== (b?.position?.[key] || 0)) {
+                return false;
+            }
+        }
+        if (!shallowEqual(a?.typography, b?.typography)) return false;
+        if (!shallowEqual(a?.margin, b?.margin)) return false;
+        return true;
+    }
+
+    function shallowEqual(a, b) {
+        if (a === b) return true;
+        if (!a || !b) return false;
+        const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
+        for (const key of keys) {
+            if (a[key] !== b[key]) return false;
+        }
+        return true;
+    }
+
+    function getPagesFromLayout(layout) {
+        if (!layout) return [];
+        const pages = Array.isArray(layout.pages) && layout.pages.length ? layout.pages : null;
+        if (pages) return pages;
+        if (Array.isArray(layout.blocks) && layout.blocks.length) {
+            return [
+                {
+                    id: layout.activePageId || 'page-1',
+                    name: layout.activePageId || 'Page 1',
+                    order: 0,
+                    blocks: layout.blocks,
+                },
+            ];
+        }
+        return [];
+    }
+
+    function queueAgentHighlights(changes) {
+        if (!Array.isArray(changes) || !changes.length) return;
+        state.agentHighlightQueue.push(...changes);
+        processAgentHighlightQueue();
+    }
+
+    async function processAgentHighlightQueue() {
+        if (state.agentHighlightActive) return;
+        const nextHighlight = state.agentHighlightQueue.shift();
+        if (!nextHighlight) return;
+        state.agentHighlightActive = true;
+        try {
+            await ensurePageActive(nextHighlight.pageId);
+            await waitForBlockElements(nextHighlight.blockIds);
+            await focusBlocksOnCanvas(nextHighlight.blockIds);
+            flashBlocks(nextHighlight.blockIds);
+        } finally {
+            state.agentHighlightActive = false;
+            if (state.agentHighlightQueue.length) {
+                setTimeout(processAgentHighlightQueue, 200);
+            }
+        }
+    }
+
+    async function ensurePageActive(pageId) {
+        if (!pageId || pageId === state.activePageId) return;
+        const targetPage = state.pages.find((page) => page.id === pageId);
+        if (!targetPage) return;
+        setActivePage(pageId, { force: true });
+        await waitForAnimationFrame();
+        await waitForAnimationFrame();
+    }
+
+    function waitForBlockElements(blockIds, maxAttempts = 8) {
+        return new Promise((resolve) => {
+            let attempts = 0;
+            const check = () => {
+                const missing = blockIds.some((id) => !state.blockElements.get(id));
+                if (!missing || attempts >= maxAttempts) {
+                    resolve();
+                    return;
+                }
+                attempts += 1;
+                requestAnimationFrame(check);
+            };
+            check();
+        });
+    }
+
+    async function focusBlocksOnCanvas(blockIds) {
+        if (!Array.isArray(blockIds) || !blockIds.length) return;
+        const blocks = blockIds
+            .map((id) => state.blocks.get(id))
+            .filter(Boolean);
+        if (!blocks.length) return;
+        fitBlocksToViewport(blocks);
+        await waitForAnimationFrame();
+        const panel = els.canvasPanel;
+        if (!panel) return;
+        const panelRect = panel.getBoundingClientRect();
+        const blockRects = blockIds
+            .map((id) => state.blockElements.get(id))
+            .filter(Boolean)
+            .map((el) => el.getBoundingClientRect());
+        if (!blockRects.length) return;
+        const minLeft = Math.min(...blockRects.map((rect) => rect.left));
+        const maxRight = Math.max(...blockRects.map((rect) => rect.right));
+        const minTop = Math.min(...blockRects.map((rect) => rect.top));
+        const maxBottom = Math.max(...blockRects.map((rect) => rect.bottom));
+        const targetCenterX = (minLeft + maxRight) / 2;
+        const targetCenterY = (minTop + maxBottom) / 2;
+        const deltaX = targetCenterX - (panelRect.left + panelRect.width / 2);
+        const deltaY = targetCenterY - (panelRect.top + panelRect.height / 2);
+        panel.scrollBy({ left: deltaX, top: deltaY, behavior: 'smooth' });
+    }
+
+    function fitBlocksToViewport(blocks) {
+        const panel = els.canvasPanel;
+        if (!panel) return;
+        const dims = state.layout?.dimensions || { width: 794, height: 1123 };
+        let minLeft = Infinity;
+        let minTop = Infinity;
+        let maxRight = -Infinity;
+        let maxBottom = -Infinity;
+        blocks.forEach((block) => {
+            const pos = block.position || {};
+            const left = pos.left ?? 0;
+            const top = pos.top ?? 0;
+            const width = pos.width ?? 0;
+            const height = pos.height ?? 0;
+            minLeft = Math.min(minLeft, left);
+            minTop = Math.min(minTop, top);
+            maxRight = Math.max(maxRight, left + width);
+            maxBottom = Math.max(maxBottom, top + height);
+        });
+        if (!Number.isFinite(minLeft) || !Number.isFinite(minTop)) return;
+        const margin = 40;
+        const targetWidth = Math.min(maxRight - minLeft + margin * 2, dims.width);
+        const targetHeight = Math.min(maxBottom - minTop + margin * 2, dims.height);
+        const availableWidth = Math.max(panel.clientWidth - 80, 120);
+        const availableHeight = Math.max(panel.clientHeight - 80, 120);
+        if (availableWidth <= 0 || availableHeight <= 0) return;
+        const zoomForWidth = availableWidth / targetWidth;
+        const zoomForHeight = availableHeight / targetHeight;
+        const desiredZoom = clampNumber(Math.min(zoomForWidth, zoomForHeight), ZOOM_CONFIG.min, ZOOM_CONFIG.max);
+        if (Math.abs(desiredZoom - state.zoom) > 0.05) {
+            setCanvasZoom(desiredZoom);
+        }
+    }
+
+    function flashBlocks(blockIds) {
+        blockIds.forEach((id) => {
+            const element = state.blockElements.get(id);
+            if (!element) return;
+            element.classList.add('block--agent-flash');
+            setTimeout(() => {
+                element.classList.remove('block--agent-flash');
+            }, 1100);
+        });
+    }
+
+    function waitForAnimationFrame() {
+        return new Promise((resolve) => requestAnimationFrame(() => resolve()));
     }
 
     function renderChatMessages() {
@@ -1852,6 +2373,121 @@ document.addEventListener('DOMContentLoaded', () => {
             els.chatLog.appendChild(wrapper);
         });
         scrollChatLogToBottom();
+    }
+
+    function generateProgressToken() {
+        return `progress-${Date.now().toString(16)}-${Math.random().toString(16).slice(2, 10)}`;
+    }
+
+    function startAgentProgressWatcher(progressId) {
+        if (!progressId) return;
+        stopAgentProgressWatcher();
+        const message = pushChatMessage({
+            role: 'system',
+            content: 'Agent preparing tasks…',
+            variant: 'muted',
+        });
+        state.chat.progress = {
+            id: progressId,
+            timer: null,
+            messageId: message.id,
+            lastStatus: message.content,
+            historyLength: 0,
+        };
+        pollAgentProgress();
+        state.chat.progress.timer = window.setInterval(() => {
+            pollAgentProgress();
+        }, 2000);
+    }
+
+    function stopAgentProgressWatcher(finalText) {
+        const watcher = state.chat.progress;
+        if (watcher.timer) {
+            clearInterval(watcher.timer);
+        }
+        if (finalText && watcher.messageId) {
+            updateAgentProgressMessage(finalText, true);
+        }
+        state.chat.progress = {
+            id: null,
+            timer: null,
+            messageId: null,
+            lastStatus: null,
+            historyLength: 0,
+        };
+    }
+
+    async function finalizeAgentProgressWatcher(progressId) {
+        if (!progressId) {
+            stopAgentProgressWatcher();
+            return;
+        }
+        await pollAgentProgress({ overrideId: progressId });
+        stopAgentProgressWatcher();
+    }
+
+    async function pollAgentProgress(options = {}) {
+        const progressId = options.overrideId || state.chat.progress.id;
+        if (!progressId) return null;
+        try {
+            const response = await fetch(`/api/chat/progress/${encodeURIComponent(progressId)}`);
+            if (!response.ok) {
+                throw new Error('progress unavailable');
+            }
+            const data = await response.json();
+            if (!data.success || !data.progress) {
+                throw new Error('progress unavailable');
+            }
+            const progress = data.progress;
+            updateAgentProgressMessage(progress, !!progress.done);
+            if (progress.done && state.chat.progress.id === progressId) {
+                stopAgentProgressWatcher();
+            }
+            return progress;
+        } catch (error) {
+            console.warn('Progress polling failed:', error);
+            updateAgentProgressMessage('Assistant progress unavailable.', true);
+            stopAgentProgressWatcher();
+            return null;
+        }
+    }
+
+    function updateAgentProgressMessage(progress, finalize = false) {
+        if (!progress) return;
+        const watcher = state.chat.progress;
+        const targetId = watcher.messageId;
+        if (!targetId) return;
+        const message = state.chat.messages.find((entry) => entry.id === targetId);
+        if (!message) return;
+        const text = typeof progress === 'string' ? progress : formatProgressLabel(progress);
+        message.content = text;
+        renderChatMessages();
+        watcher.lastStatus = text;
+        if (typeof progress === 'object' && progress.events) {
+            watcher.historyLength = progress.events.length;
+        }
+        if (finalize) {
+            state.chat.progress.messageId = null;
+        }
+    }
+
+    function formatProgressLabel(progress) {
+        if (!progress) return 'Agent progress unavailable.';
+        if (typeof progress === 'string') return progress;
+        const events = Array.isArray(progress.events) ? progress.events : [];
+        const lines = [];
+        events.forEach((event, index) => {
+            const label = event.detail || event.status || 'Working…';
+            lines.push(`${index + 1}. ${label}`);
+        });
+        if (progress.error) {
+            lines.push(`Agent error — ${progress.error}`);
+        } else if (progress.done) {
+            lines.push(`Agent complete — ${progress.detail || progress.status || 'Finished.'}`);
+        } else if (!events.length) {
+            lines.push(`Agent progress — ${progress.detail || progress.status || 'Working…'}`);
+        }
+        return lines.join('\n');
     }
 
     function renderMessageAttachment(attachment) {

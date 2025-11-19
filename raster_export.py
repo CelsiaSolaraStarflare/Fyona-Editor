@@ -89,6 +89,8 @@ def _draw_block(draw: ImageDraw.ImageDraw, canvas: Image.Image, block: Dict[str,
 
     bg_color = _parse_color(block.get("backgroundColor") or block.get("background"), DEFAULT_BACKGROUND)
     border_radius = max(0, int(_coerce_float(block.get("borderRadius"), 12) * scale))
+    margins = _resolve_block_margins(block, scale)
+    content_rect = _inset_rect(rect, margins)
 
     if bg_color[3] > 0:
         draw.rounded_rectangle(
@@ -100,9 +102,11 @@ def _draw_block(draw: ImageDraw.ImageDraw, canvas: Image.Image, block: Dict[str,
 
     block_type = str(block.get("type") or "text").lower()
     if block_type == "image":
-        _draw_image_block(canvas, block, rect, border_radius, asset_root)
+        target_rect = content_rect or rect
+        _draw_image_block(canvas, block, target_rect, border_radius, asset_root)
     else:
-        _draw_text_block(draw, block, rect, border_radius, scale)
+        if content_rect:
+            _draw_text_block(draw, block, content_rect, scale)
 
 
 def _draw_image_block(canvas: Image.Image, block: Dict[str, Any], rect, border_radius: int, asset_root: Optional[Path]):
@@ -120,15 +124,14 @@ def _draw_image_block(canvas: Image.Image, block: Dict[str, Any], rect, border_r
     canvas.paste(fitted, (rect.x, rect.y), mask)
 
 
-def _draw_text_block(draw: ImageDraw.ImageDraw, block: Dict[str, Any], rect, border_radius: int, scale: int):
+def _draw_text_block(draw: ImageDraw.ImageDraw, block: Dict[str, Any], rect, scale: int):
     content = _sanitize_text(block.get("content", ""))
     if not content:
         return
     typography = block.get("typography") or {}
-    padding = max(2, int(TEXT_PADDING * scale))
-    inner_width = max(10, rect.width - padding * 2)
-    x = rect.x + padding
-    y = rect.y + padding
+    inner_width = max(10, rect.width)
+    x = rect.x
+    y = rect.y
 
     font_size = max(8, int(_coerce_float(typography.get("fontSize"), 18) * scale))
     font = _resolve_font(typography.get("fontFamily"), font_size)
@@ -204,6 +207,34 @@ def _resolve_rect(position: Dict[str, Any], scale: int):
     if any(math.isnan(v) for v in (left, top, width, height)):
         return None
     return Rect(int(left * scale), int(top * scale), int(width * scale), int(height * scale))
+
+
+def _resolve_block_margins(block: Dict[str, Any], scale: int) -> Tuple[int, int, int, int]:
+    margin = block.get("margin")
+    block_type = str(block.get("type") or "text").lower()
+    fallback = 0.0 if block_type == "image" else float(TEXT_PADDING)
+    if isinstance(margin, dict):
+        values = (
+            max(0.0, _coerce_float(margin.get("top"), fallback)),
+            max(0.0, _coerce_float(margin.get("right"), fallback)),
+            max(0.0, _coerce_float(margin.get("bottom"), fallback)),
+            max(0.0, _coerce_float(margin.get("left"), fallback)),
+        )
+    elif margin is not None:
+        uniform = max(0.0, _coerce_float(margin, fallback))
+        values = (uniform, uniform, uniform, uniform)
+    else:
+        values = (fallback, fallback, fallback, fallback)
+    return tuple(int(value * scale) for value in values)
+
+
+def _inset_rect(rect: Rect, margins: Tuple[int, int, int, int]) -> Optional[Rect]:
+    top, right, bottom, left = margins
+    width = rect.width - left - right
+    height = rect.height - top - bottom
+    if width <= 0 or height <= 0:
+        return None
+    return Rect(rect.x + left, rect.y + top, width, height)
 
 
 @dataclass

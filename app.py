@@ -4,6 +4,7 @@ import json
 import os
 import re
 import time
+import threading
 from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
@@ -55,7 +56,7 @@ ASSET_ROUTE = "serve_project_asset"
 CHAT_ATTACHMENT_LIMIT = 6
 MAX_AGENT_FILES = 24
 MAX_AGENT_BYTES = 8_192
-MAX_AGENT_TOOL_CALLS = 8
+MAX_AGENT_TOOL_CALLS = 0  # zero or negative removes the cap
 DEFAULT_DASHSCOPE_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 DASHSCOPE_BASE_URL = os.getenv("DASHSCOPE_BASE_URL", DEFAULT_DASHSCOPE_BASE_URL)
 DASHSCOPE_API_KEY = os.getenv("DASHSCOPE_API_KEY")
@@ -70,6 +71,17 @@ MAX_LAYOUT_CONTEXT_CHARS = 18_000
 MAX_TREE_CONTEXT_CHARS = 6_000
 MAX_FILE_PREVIEW_CHARS = 2_000
 MAX_FILE_CONTEXT = 6
+DEFAULT_FONT_SIZE_PX = 16
+FONT_SIZE_MIN = 8
+FONT_SIZE_MAX = 200
+MARGIN_MIN = 0
+MARGIN_MAX = 480
+DEFAULT_BLOCK_MARGIN = {"top": 16, "right": 16, "bottom": 16, "left": 16}
+DEFAULT_IMAGE_MARGIN = {"top": 0, "right": 0, "bottom": 0, "left": 0}
+DEFAULT_LINE_HEIGHT_RATIO = 1.4
+TEXT_CHAR_WIDTH_RATIO = 0.55
+LAYOUT_WARNING_LIMIT = 12
+AGENT_PROGRESS_TTL_SECONDS = 120
 AGENT_SYSTEM_PROMPT = (
     "You are Fyona, an editorial design assistant that helps plan and refine magazine layouts. Use the user's "
     "message plus any attachments, the project directory listing, and the current layout JSON to reason about "
@@ -79,6 +91,18 @@ AGENT_SYSTEM_PROMPT = (
 _openai_client: Optional["OpenAI"] = None
 
 PROJECTS_ROOT.mkdir(parents=True, exist_ok=True)
+AGENT_PROGRESS: Dict[str, Dict[str, Any]] = {}
+AGENT_PROGRESS_LOCK = threading.Lock()
+TOKEN_USAGE_DIR = BASE_DIR / "logs"
+TOKEN_USAGE_FILE = TOKEN_USAGE_DIR / "token_usage.json"
+TOKEN_USAGE_DIR.mkdir(parents=True, exist_ok=True)
+TOKEN_USAGE_LOCK = threading.Lock()
+TOKEN_USAGE_STATE: Dict[str, float] = {
+    "session_tokens": 0,
+    "session_image_bytes": 0,
+    "lifetime_tokens": 0,
+    "lifetime_image_bytes": 0,
+}
 
 DEFAULT_LAYOUT: Dict[str, Any] = {
     "columns": 3,
@@ -172,9 +196,27 @@ def normalize_block(block: Dict[str, Any]) -> Dict[str, Any]:
         result["imageUrl"] = block["imageUrl"]
     typography = block.get("typography")
     if isinstance(typography, dict):
-        result["typography"] = dict(typography)
+        normalized_typography = dict(typography)
+        normalized_typography["fontSize"] = _normalize_font_size(normalized_typography.get("fontSize"))
+        result["typography"] = normalized_typography
+    margin_source = block.get("margin")
+    if margin_source is None and "padding" in block:
+        margin_source = block.get("padding")
+    result["margin"] = _normalize_block_margin(margin_source, result["type"])
 
-    extra_keys = set(block.keys()) - {"id", "type", "content", "position", "backgroundColor", "textColor", "borderRadius", "imageUrl", "typography"}
+    extra_keys = set(block.keys()) - {
+        "id",
+        "type",
+        "content",
+        "position",
+        "backgroundColor",
+        "textColor",
+        "borderRadius",
+        "imageUrl",
+        "typography",
+        "margin",
+        "padding",
+    }
     for key in extra_keys:
         result[key] = block[key]
 
@@ -188,6 +230,261 @@ def _coerce_number(value: Any, fallback: float) -> float:
         return float(value)
     except (TypeError, ValueError):
         return fallback
+
+
+def _default_margin_for_type(block_type: str) -> Dict[str, int]:
+    key = (block_type or "").strip().lower()
+    if key == "image":
+        return dict(DEFAULT_IMAGE_MARGIN)
+    return dict(DEFAULT_BLOCK_MARGIN)
+
+
+def _normalize_margin_value(value: Any, fallback: int) -> int:
+    number = int(_coerce_number(value, fallback))
+    if number < MARGIN_MIN:
+        return MARGIN_MIN
+    if number > MARGIN_MAX:
+        return MARGIN_MAX
+    return number
+
+
+def _normalize_block_margin(raw_margin: Any, block_type: str) -> Dict[str, int]:
+    base = _default_margin_for_type(block_type)
+    if raw_margin is None:
+        return base
+    if isinstance(raw_margin, (int, float)):
+        uniform = _normalize_margin_value(raw_margin, base["top"])
+        return {side: uniform for side in base}
+    if isinstance(raw_margin, dict):
+        margin = dict(base)
+        for side in ("top", "right", "bottom", "left"):
+            if side in raw_margin:
+                margin[side] = _normalize_margin_value(raw_margin.get(side), margin[side])
+        return margin
+    if isinstance(raw_margin, str) and raw_margin.strip():
+        uniform = _normalize_margin_value(raw_margin, base["top"])
+        return {side: uniform for side in base}
+    return base
+
+
+def _normalize_font_size(raw_value: Any) -> int:
+    size = int(round(_coerce_number(raw_value, DEFAULT_FONT_SIZE_PX)))
+    if size <= 0:
+        size = DEFAULT_FONT_SIZE_PX
+    if size < FONT_SIZE_MIN:
+        return FONT_SIZE_MIN
+    if size > FONT_SIZE_MAX:
+        return FONT_SIZE_MAX
+    return size
+
+
+def _estimate_text_line_count(text: str, max_chars_per_line: int) -> int:
+    if max_chars_per_line <= 0:
+        max_chars_per_line = 1
+    normalized = (text or "").replace("\r", "")
+    if not normalized:
+        return 0
+    total_lines = 0
+    for paragraph in normalized.split("\n"):
+        stripped = paragraph.strip()
+        if not stripped:
+            total_lines += 1
+            continue
+        words = stripped.split()
+        line_length = 0
+        for word in words:
+            word_len = len(word)
+            if word_len >= max_chars_per_line:
+                if line_length > 0:
+                    total_lines += 1
+                    line_length = 0
+                full_lines, remainder = divmod(word_len, max_chars_per_line)
+                total_lines += full_lines
+                line_length = remainder
+                continue
+            if line_length == 0:
+                line_length = word_len
+                continue
+            if line_length + 1 + word_len <= max_chars_per_line:
+                line_length += 1 + word_len
+            else:
+                total_lines += 1
+                line_length = word_len
+        if line_length > 0:
+            total_lines += 1
+    return total_lines
+
+
+def _collect_layout_warnings(layout: Dict[str, Any]) -> List[Dict[str, Any]]:
+    warnings: List[Dict[str, Any]] = []
+    pages = layout.get("pages") or []
+    if not pages and layout.get("blocks"):
+        pages = [
+            {
+                "id": layout.get("activePageId"),
+                "name": "Page 1",
+                "order": 0,
+                "blocks": layout.get("blocks") or [],
+            }
+        ]
+    for index, page in enumerate(pages):
+        page_name = page.get("name") or f"Page {index + 1}"
+        page_id = page.get("id") or f"page-{index + 1}"
+        for block in page.get("blocks") or []:
+            warning = _evaluate_text_visibility(block, page_name, page_id)
+            if warning:
+                warnings.append(warning)
+    return warnings
+
+
+def _evaluate_text_visibility(block: Dict[str, Any], page_name: str, page_id: str) -> Optional[Dict[str, Any]]:
+    block_type = str(block.get("type") or "text").lower()
+    if block_type == "image":
+        return None
+    content = (block.get("content") or "").strip()
+    if not content:
+        return None
+    position = block.get("position") or {}
+    width = max(0.0, _coerce_number(position.get("width"), 0))
+    height = max(0.0, _coerce_number(position.get("height"), 0))
+    margin = _normalize_block_margin(block.get("margin") or block.get("padding"), block_type)
+    inner_width = width - margin["left"] - margin["right"]
+    inner_height = height - margin["top"] - margin["bottom"]
+    block_id = block.get("id")
+    typography = block.get("typography") if isinstance(block.get("typography"), dict) else {}
+    font_size = _normalize_font_size((typography or {}).get("fontSize"))
+    line_height_ratio = typography.get("lineHeight")
+    if isinstance(line_height_ratio, (int, float)) and line_height_ratio > 0:
+        line_height = font_size * line_height_ratio
+    else:
+        line_height = font_size * DEFAULT_LINE_HEIGHT_RATIO
+    char_width = max(font_size * TEXT_CHAR_WIDTH_RATIO, 1.0)
+    if inner_width <= 0 or inner_height <= 0:
+        return {
+            "type": "textOverflow",
+            "pageId": page_id,
+            "pageName": page_name,
+            "blockId": block_id,
+            "reason": f"No readable area remains inside the block after applying margins "
+            f"({margin['left'] + margin['right']}px horizontal, {margin['top'] + margin['bottom']}px vertical).",
+        }
+    max_chars_per_line = max(int(inner_width / char_width), 1)
+    lines = _estimate_text_line_count(content, max_chars_per_line)
+    if lines <= 0:
+        return None
+    required_height = lines * line_height
+    if required_height <= inner_height + 0.5:
+        return None
+    max_visible_lines = max(int(inner_height / max(line_height, 1) + 0.0001), 0)
+    reason = (
+        f"Estimated {lines} lines of {font_size}px text inside {int(inner_width)}×{int(inner_height)}px content area, "
+        f"but only {max_visible_lines} lines fit before clipping."
+    )
+    return {
+        "type": "textOverflow",
+        "pageId": page_id,
+        "pageName": page_name,
+        "blockId": block_id,
+        "reason": reason,
+        "stats": {
+            "requiredHeight": round(required_height, 2),
+            "availableHeight": round(inner_height, 2),
+            "lines": lines,
+            "visibleLines": max_visible_lines,
+            "fontSize": font_size,
+            "lineHeight": round(line_height, 2),
+        },
+    }
+
+
+def _init_agent_progress(progress_id: Optional[str], status: str = "starting", detail: str = "") -> None:
+    if not progress_id:
+        return
+    payload = {
+        "status": status,
+        "detail": detail or "Preparing assistant request…",
+        "updated": time.time(),
+        "done": False,
+        "error": None,
+        "events": [],
+    }
+    with AGENT_PROGRESS_LOCK:
+        AGENT_PROGRESS[progress_id] = payload
+        _append_agent_progress_event(payload, status, payload["detail"])
+
+
+def _update_agent_progress(
+    progress_id: Optional[str],
+    *,
+    status: Optional[str] = None,
+    detail: Optional[str] = None,
+    error: Optional[str] = None,
+    done: Optional[bool] = None,
+) -> None:
+    if not progress_id:
+        return
+    with AGENT_PROGRESS_LOCK:
+        entry = AGENT_PROGRESS.get(progress_id)
+        if not entry:
+            entry = {
+                "status": "starting",
+                "detail": "",
+                "updated": time.time(),
+                "done": False,
+                "error": None,
+                "events": [],
+            }
+            AGENT_PROGRESS[progress_id] = entry
+        if status:
+            entry["status"] = status
+        if detail:
+            entry["detail"] = detail
+        if status or detail:
+            _append_agent_progress_event(entry, status, detail or status)
+        if error:
+            entry["error"] = error
+            _append_agent_progress_event(entry, "error", error)
+        if done is not None:
+            entry["done"] = done
+            if done:
+                entry["expires"] = time.time() + AGENT_PROGRESS_TTL_SECONDS
+                if detail:
+                    _append_agent_progress_event(entry, status or "complete", detail)
+        entry["updated"] = time.time()
+
+
+def _get_agent_progress(progress_id: str) -> Optional[Dict[str, Any]]:
+    now = time.time()
+    with AGENT_PROGRESS_LOCK:
+        expired = [
+            key
+            for key, value in AGENT_PROGRESS.items()
+            if value.get("done") and value.get("expires", 0) <= now
+        ]
+        for key in expired:
+            AGENT_PROGRESS.pop(key, None)
+        entry = AGENT_PROGRESS.get(progress_id)
+        if not entry:
+            return None
+        return dict(entry)
+
+
+def _append_agent_progress_event(entry: Dict[str, Any], status: Optional[str], detail: Optional[str]) -> None:
+    events = entry.setdefault("events", [])
+    label = detail or status
+    if not label:
+        return
+    events.append(
+        {
+            "timestamp": time.time(),
+            "status": status,
+            "detail": label,
+        }
+    )
+    if len(events) > 80:
+        entry["events"] = events[-80:]
+
+
 
 
 def _generate_page_id() -> str:
@@ -328,8 +625,12 @@ def _sanitize_block_after_update(block: Dict[str, Any]) -> None:
         "height": int(_coerce_number(position.get("height"), 120)),
     }
     typography = block.get("typography")
-    if typography is not None and not isinstance(typography, dict):
+    if isinstance(typography, dict):
+        typography["fontSize"] = _normalize_font_size(typography.get("fontSize"))
+    elif typography is not None:
         block.pop("typography", None)
+    block_type = block.get("type") or "text"
+    block["margin"] = _normalize_block_margin(block.get("margin") or block.get("padding"), block_type)
 
 
 def _render_canvas_preview(project: str) -> Dict[str, Any]:
@@ -459,6 +760,7 @@ def _build_project_snapshot(project: str) -> Dict[str, Any]:
     root = project_dir(project)
     tree_text, stats = _build_directory_tree(root)
     layout = load_layout(project)
+    warnings = _collect_layout_warnings(layout)
     files = _gather_agent_files(root)
     return {
         "project": project,
@@ -467,6 +769,7 @@ def _build_project_snapshot(project: str) -> Dict[str, Any]:
         "directoriesIndexed": stats["dirs"],
         "files": files,
         "layout": layout,
+        "warnings": warnings,
     }
 
 
@@ -558,6 +861,21 @@ def _build_qwen_messages(
                 {
                     "type": "text",
                     "text": f"Layout JSON:\n{_truncate_context(layout_text, MAX_LAYOUT_CONTEXT_CHARS)}",
+                }
+            )
+        warnings = agent_snapshot.get("warnings") or []
+        if warnings:
+            entries = warnings[:LAYOUT_WARNING_LIMIT]
+            summary_lines = [
+                f"- Page “{item.get('pageName') or item.get('pageId') or '?'}”, block {item.get('blockId') or 'unknown'}: {item.get('reason')}"
+                for item in entries
+            ]
+            if len(warnings) > len(entries):
+                summary_lines.append(f"...{len(warnings) - len(entries)} additional block(s) with potential clipping.")
+            user_content.append(
+                {
+                    "type": "text",
+                    "text": "Layout warnings:\n" + "\n".join(summary_lines),
                 }
             )
         files = agent_snapshot.get("files") or []
@@ -674,29 +992,55 @@ def _build_agent_toolset(project: str) -> AgentToolset:
         load_layout=load_layout,
         save_layout=save_layout,
         terminal_factory=_terminal_factory,
+        project_root=project_dir(project),
     )
     return AgentToolset(context)
 
 
-def _run_agent_with_tools(messages: List[Dict[str, Any]], project: str) -> Tuple[str, bool, List[Dict[str, Any]]]:
+def _run_agent_with_tools(
+    messages: List[Dict[str, Any]],
+    project: str,
+    *,
+    progress_callback: Optional[Callable[[str, Optional[str]], None]] = None,
+) -> Tuple[str, bool, List[Dict[str, Any]]]:
     toolkit = _build_agent_toolset(project)
     conversation = list(messages)
     layout_changed = False
     trace: List[Dict[str, Any]] = []
+    remaining_calls: Optional[int] = MAX_AGENT_TOOL_CALLS if MAX_AGENT_TOOL_CALLS > 0 else None
+    last_progress_detail: Optional[str] = None
 
-    def _loop(remaining_calls: int) -> Tuple[str, bool, List[Dict[str, Any]]]:
-        nonlocal layout_changed
-        if remaining_calls <= 0:
+    def emit_progress(status: str, detail: Optional[str]) -> None:
+        nonlocal last_progress_detail
+        if not progress_callback:
+            return
+        text = (detail or status or "").strip()
+        if not text:
+            text = status or "working"
+        if text == last_progress_detail:
+            return
+        last_progress_detail = text
+        progress_callback(status, text)
+
+    while True:
+        if remaining_calls is not None and remaining_calls <= 0:
             trace.append({"kind": "limit", "message": "Reached the maximum number of agent tool calls."})
+            if progress_callback:
+                progress_callback("limit", "Reached agent tool limit before finishing.")
             return (
                 "I reached the tool usage limit before finishing the task. Summarize the remaining work for the user.",
                 layout_changed,
                 trace,
             )
 
+        if remaining_calls is None:
+            emit_progress("thinking", "Analyzing next step (unlimited tool calls)…")
+        else:
+            emit_progress("thinking", f"Analyzing next step ({remaining_calls} tool call(s) remaining)…")
         response_message = _request_qwen_message(conversation, tools=toolkit.specs)
         if not response_message:
             trace.append({"kind": "error", "message": "Assistant response was empty."})
+            emit_progress("error", "Assistant returned an empty response.")
             return (
                 "I could not contact the assistant to keep running tools. Please try again.",
                 layout_changed,
@@ -715,7 +1059,9 @@ def _run_agent_with_tools(messages: List[Dict[str, Any]], project: str) -> Tuple
         message_text = _message_content_to_text(getattr(response_message, "content", ""))
         if tool_calls:
             if message_text:
-                trace.append({"kind": "thought", "message": message_text})
+                detail = message_text.strip()
+                trace.append({"kind": "thought", "message": detail})
+                emit_progress("thinking", detail[:280])
             for call in tool_calls:
                 function = call.get("function") or {}
                 name = function.get("name") or ""
@@ -726,20 +1072,25 @@ def _run_agent_with_tools(messages: List[Dict[str, Any]], project: str) -> Tuple
                     "arguments": arguments,
                 }
                 try:
+                    arg_preview = (arguments or "{}")[:200]
+                    emit_progress("tool", f"Running {name or 'tool'} with args {arg_preview or '{}'}")
                     result = toolkit.invoke(name, arguments)
                     tool_output = result.content
                     layout_changed = layout_changed or result.layout_changed
                     entry["status"] = "ok"
                     entry["result"] = tool_output
+                    emit_progress("tool", f"Finished {name or 'tool'}.")
                 except AgentToolError as exc:
                     tool_output = f"Tool error: {exc}"
                     entry["status"] = "error"
                     entry["result"] = tool_output
+                    emit_progress("error", tool_output[:240])
                 except Exception:  # pragma: no cover - defensive guard
                     app.logger.exception("agent tool invocation failed")
                     tool_output = "Tool error: unexpected failure while running this command."
                     entry["status"] = "error"
                     entry["result"] = tool_output
+                    emit_progress("error", tool_output[:240])
                 trace.append(entry)
                 conversation.append(
                     {
@@ -749,16 +1100,18 @@ def _run_agent_with_tools(messages: List[Dict[str, Any]], project: str) -> Tuple
                         "content": tool_output,
                     }
                 )
-            return _loop(remaining_calls - 1)
+                if remaining_calls is not None:
+                    remaining_calls -= 1
+            continue
 
         if message_text:
             trace.append({"kind": "final", "message": message_text})
+            emit_progress("complete", "Agent finished composing the reply.")
             return message_text, layout_changed, trace
 
         trace.append({"kind": "thought", "message": "Assistant replied without content, continuing…"})
-        return _loop(remaining_calls - 1)
-
-    return _loop(MAX_AGENT_TOOL_CALLS)
+        if remaining_calls is not None:
+            remaining_calls -= 1
 
 
 def _fallback_chat_reply(message: str, attachments: List[Dict[str, Any]], agent_snapshot: Optional[Dict[str, Any]]) -> str:
@@ -785,16 +1138,19 @@ def _generate_chat_reply(
     *,
     project: str,
     allow_tools: bool = False,
+    progress_callback: Optional[Callable[[str, Optional[str]], None]] = None,
 ) -> Tuple[str, bool, List[Dict[str, Any]]]:
     if not _dashscope_configured():
         return _fallback_chat_reply(message, attachments, agent_snapshot), False, []
 
     messages = _build_qwen_messages(message or "", attachments, agent_snapshot)
     if allow_tools:
-        reply, layout_changed, trace = _run_agent_with_tools(messages, project)
+        reply, layout_changed, trace = _run_agent_with_tools(messages, project, progress_callback=progress_callback)
         return reply, layout_changed, trace
 
     try:
+        if progress_callback:
+            progress_callback("responding", "Assistant is composing a reply…")
         reply = _call_qwen_completion(messages)
         return reply, False, []
     except Exception as exc:  # pragma: no cover - network and SDK failures
@@ -1065,6 +1421,8 @@ def chat_assistant():
     agent_mode = bool(payload.get("agentMode"))
     permissions_payload = payload.get("agentPermissions") or {}
     allow_layout_edits = bool(permissions_payload.get("allowLayoutEdits"))
+    progress_token = (payload.get("progressToken") or "").strip() or None
+    _init_agent_progress(progress_token, "starting", "Contacting the assistant…")
 
     attachments: List[Dict[str, Any]] = []
     for item in attachments_raw:
@@ -1090,12 +1448,16 @@ def chat_assistant():
             agent_snapshot = _build_project_snapshot(project)
     layout = agent_snapshot["layout"] if agent_snapshot else load_layout(project)
     allow_tools = agent_mode and allow_layout_edits
+    def _progress(status: str, detail: Optional[str] = None) -> None:
+        _update_agent_progress(progress_token, status=status, detail=detail or status)
+
     reply, layout_updated, agent_trace = _generate_chat_reply(
         message,
         attachments,
         agent_snapshot,
         project=project,
         allow_tools=allow_tools,
+        progress_callback=_progress,
     )
     if layout_updated:
         agent_snapshot = _build_project_snapshot(project)
@@ -1104,6 +1466,10 @@ def chat_assistant():
     total_blocks = sum(len(page.get("blocks", [])) for page in pages)
     if not total_blocks:
         total_blocks = len(layout.get("blocks", []))
+    tokens_used, image_bytes = _estimate_chat_token_usage(message, attachments, reply or "")
+    _record_token_usage(tokens_used, image_bytes)
+    stats = _get_token_stats()
+    _update_agent_progress(progress_token, status="complete", detail="Assistant reply ready.", done=True)
     return jsonify(
         {
             "success": True,
@@ -1117,6 +1483,8 @@ def chat_assistant():
                 "project": project,
                 "blocks": total_blocks,
             },
+            "progressToken": progress_token,
+            "tokenStats": stats,
         }
     )
 
@@ -1137,6 +1505,33 @@ def chat_agent_snapshot():
     project = sanitize_project(request.args.get("project") or DEFAULT_PROJECT)
     snapshot = _build_project_snapshot(project)
     return jsonify({"success": True, "snapshot": snapshot})
+
+
+@app.route("/api/chat/progress/<progress_id>", methods=["GET"])
+def chat_progress(progress_id: str):
+    progress = _get_agent_progress(progress_id)
+    if not progress:
+        placeholder = {
+            "status": "pending",
+            "detail": "Waiting for assistant to report progress…",
+            "updated": time.time(),
+            "done": False,
+            "error": None,
+            "events": [
+                {
+                    "timestamp": time.time(),
+                    "status": "pending",
+                    "detail": "Waiting for assistant to report progress…",
+                }
+            ],
+        }
+        return jsonify({"success": True, "progress": {**placeholder, "id": progress_id}})
+    return jsonify({"success": True, "progress": {**progress, "id": progress_id}})
+
+
+@app.route("/api/chat/token-stats", methods=["GET"])
+def chat_token_stats():
+    return jsonify({"success": True, "stats": _get_token_stats()})
 
 
 @app.route("/api/terminal", methods=["POST"])
@@ -1165,6 +1560,107 @@ def terminal_command():
             "layoutUpdated": bool(result.layout),
         }
     )
+
+
+def _load_token_usage_state() -> Dict[str, float]:
+    if not TOKEN_USAGE_FILE.exists():
+        return {
+            "session_tokens": 0,
+            "session_image_bytes": 0,
+            "lifetime_tokens": 0,
+            "lifetime_image_bytes": 0,
+        }
+    try:
+        data = json.loads(TOKEN_USAGE_FILE.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        data = {}
+    return {
+        "session_tokens": 0,
+        "session_image_bytes": 0,
+        "lifetime_tokens": float(data.get("lifetime_tokens", 0)),
+        "lifetime_image_bytes": float(data.get("lifetime_image_bytes", 0)),
+    }
+
+
+def _save_token_usage_state() -> None:
+    payload = {
+        "lifetime_tokens": TOKEN_USAGE_STATE.get("lifetime_tokens", 0),
+        "lifetime_image_bytes": TOKEN_USAGE_STATE.get("lifetime_image_bytes", 0),
+    }
+    try:
+        TOKEN_USAGE_FILE.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+    except OSError:
+        pass
+
+
+def _record_token_usage(tokens: int, image_bytes: float) -> None:
+    if tokens <= 0 and image_bytes <= 0:
+        return
+    with TOKEN_USAGE_LOCK:
+        TOKEN_USAGE_STATE["session_tokens"] = TOKEN_USAGE_STATE.get("session_tokens", 0) + max(tokens, 0)
+        TOKEN_USAGE_STATE["lifetime_tokens"] = TOKEN_USAGE_STATE.get("lifetime_tokens", 0) + max(tokens, 0)
+        TOKEN_USAGE_STATE["session_image_bytes"] = TOKEN_USAGE_STATE.get("session_image_bytes", 0.0) + max(image_bytes, 0.0)
+        TOKEN_USAGE_STATE["lifetime_image_bytes"] = TOKEN_USAGE_STATE.get("lifetime_image_bytes", 0.0) + max(image_bytes, 0.0)
+    _save_token_usage_state()
+
+
+def _get_token_stats() -> Dict[str, float]:
+    with TOKEN_USAGE_LOCK:
+        return {
+            "sessionTokens": int(TOKEN_USAGE_STATE.get("session_tokens", 0)),
+            "lifetimeTokens": int(TOKEN_USAGE_STATE.get("lifetime_tokens", 0)),
+            "sessionImages": float(TOKEN_USAGE_STATE.get("session_image_bytes", 0.0)),
+            "lifetimeImages": float(TOKEN_USAGE_STATE.get("lifetime_image_bytes", 0.0)),
+        }
+
+
+def _estimate_text_tokens(text: Optional[str]) -> int:
+    """Return the number of UTF-8 bytes sent for textual content."""
+    if not text:
+        return 0
+    try:
+        return len(text.encode("utf-8"))
+    except AttributeError:
+        return 0
+
+
+def _estimate_attachment_usage(attachments: List[Dict[str, Any]]) -> Tuple[int, float]:
+    tokens = 0
+    image_bytes = 0.0
+    for attachment in attachments or []:
+        if not isinstance(attachment, dict):
+            continue
+        data_url = attachment.get("dataUrl")
+        if isinstance(data_url, str) and data_url.startswith("data:image"):
+            bytes_count = _estimate_image_bytes(data_url)
+            image_bytes += bytes_count
+        else:
+            label = attachment.get("label")
+            meta = attachment.get("meta")
+            tokens += _estimate_text_tokens(label)
+            if meta:
+                tokens += _estimate_text_tokens(json.dumps(meta))
+    return tokens, image_bytes
+
+
+def _estimate_image_bytes(data_url: str) -> float:
+    try:
+        header, encoded = data_url.split(",", 1)
+    except ValueError:
+        return 0.0
+    padding = encoded.count("=")
+    length = len(encoded.strip())
+    return max(0.0, (length * 3 / 4) - padding)
+
+
+def _estimate_chat_token_usage(message: str, attachments: List[Dict[str, Any]], reply: str) -> Tuple[int, float]:
+    tokens = _estimate_text_tokens(message) + _estimate_text_tokens(reply)
+    attachment_tokens, image_bytes = _estimate_attachment_usage(attachments)
+    tokens += attachment_tokens
+    return tokens, image_bytes
+
+
+TOKEN_USAGE_STATE.update(_load_token_usage_state())
 
 
 if __name__ == "__main__":
