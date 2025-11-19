@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
@@ -26,6 +27,9 @@ class AgentToolContext:
     save_layout: Callable[[str, Dict[str, Any]], Dict[str, Any]]
     terminal_factory: Optional[Callable[[Dict[str, Any]], TerminalProcessor]] = None
     project_root: Optional[Path] = None
+    allow_layout_edits: bool = False
+    allow_web_search: bool = False
+    web_search: Optional[Callable[[str, int], List[Dict[str, str]]]] = None
 
 
 @dataclass
@@ -47,6 +51,15 @@ class ToolDefinition:
 
 
 MAX_TOOL_RESPONSE = 16000
+PROJECT_FILE_MAX_CHARS = 16_000
+PROJECT_TREE_DEFAULT_MAX = 200
+PROJECT_TREE_MAX_LIMIT = 800
+PROJECT_TREE_MIN_DEPTH = 1
+PROJECT_TREE_MAX_DEPTH = 6
+PROJECT_SEARCH_MAX_MATCHES = 20
+PROJECT_SEARCH_MIN_MATCHES = 3
+PROJECT_SEARCH_MAX_FILE_BYTES = 512_000
+PROJECT_SEARCH_SNIPPET_CHARS = 240
 
 
 def _truncate(text: str, limit: Optional[int]) -> str:
@@ -70,6 +83,74 @@ def _summarize_layout(layout: Dict[str, Any]) -> str:
     if len(pages) > 6:
         lines.append("- …additional pages omitted from summary…")
     return "\n".join(lines)
+
+
+def _clamp_int(value: Any, *, default: int, min_value: int, max_value: int) -> int:
+    try:
+        number = int(value)
+    except (TypeError, ValueError):
+        number = default
+    if number < min_value:
+        return min_value
+    if number > max_value:
+        return max_value
+    return number
+
+
+def _require_project_root(context: AgentToolContext) -> Path:
+    if context.project_root is None:
+        raise AgentToolError("Project root is unavailable; launch Agent Mode to expose the project directory.")
+    try:
+        return context.project_root.resolve()
+    except OSError as exc:  # pragma: no cover - filesystem guard
+        raise AgentToolError(f"Unable to resolve project directory: {exc}") from exc
+
+
+def _resolve_project_path(context: AgentToolContext, raw_path: str) -> Path:
+    root = _require_project_root(context)
+    relative_input = (raw_path or "").strip()
+    if not relative_input:
+        raise AgentToolError("'path' is required for this tool.")
+    normalized = Path(relative_input.lstrip("/\\"))
+    target = (root / normalized).resolve()
+    try:
+        target.relative_to(root)
+    except ValueError as exc:
+        raise AgentToolError("File path must stay inside the project directory.") from exc
+    return target
+
+
+def _ensure_edit_permission(context: AgentToolContext) -> None:
+    if not context.allow_layout_edits:
+        raise AgentToolError("Enable “Allow layout edits” in the agent options before running this tool.")
+
+
+def _is_hidden_name(name: str) -> bool:
+    return name.startswith(".") and name not in {".", ".."}
+
+
+def _path_contains_hidden(path: Path) -> bool:
+    return any(_is_hidden_name(part) for part in path.parts)
+
+
+def _format_bytes(size: int) -> str:
+    units = ["B", "KB", "MB", "GB"]
+    value = float(size)
+    for unit in units:
+        if value < 1024 or unit == units[-1]:
+            return f"{value:.0f} {unit}" if unit == "B" else f"{value:.1f} {unit}"
+        value /= 1024
+    return f"{size} B"
+
+
+def _read_text_preview(path: Path, limit: int) -> str:
+    try:
+        data = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        data = path.read_text(encoding="utf-8", errors="replace")
+    except OSError as exc:  # pragma: no cover - filesystem guard
+        raise AgentToolError(f"Unable to read {path.name}: {exc}") from exc
+    return _truncate(data, limit)
 
 
 def _handle_read_layout(context: AgentToolContext, params: Dict[str, Any]) -> ToolResult:
@@ -155,6 +236,7 @@ def _coerce_layout_payload(data: Any) -> Dict[str, Any]:
 
 
 def _handle_write_layout(context: AgentToolContext, params: Dict[str, Any]) -> ToolResult:
+    _ensure_edit_permission(context)
     if "layout" in params:
         layout_payload = params["layout"]
     elif "layout_json" in params:
@@ -173,6 +255,7 @@ def _handle_terminal_command(context: AgentToolContext, params: Dict[str, Any]) 
         raise AgentToolError("'command' is required when calling run_terminal_command.")
     if context.terminal_factory is None:
         raise AgentToolError("Terminal access is not available in this environment.")
+    _ensure_edit_permission(context)
     layout = context.load_layout(context.project)
     processor = context.terminal_factory(deepcopy(layout))
     try:
@@ -187,9 +270,7 @@ def _handle_terminal_command(context: AgentToolContext, params: Dict[str, Any]) 
 
 
 def _handle_write_project_file(context: AgentToolContext, params: Dict[str, Any]) -> ToolResult:
-    root = context.project_root
-    if root is None:
-        raise AgentToolError("Project root is unavailable; cannot write files.")
+    _ensure_edit_permission(context)
     path_value = (params.get("path") or "").strip()
     if not path_value:
         raise AgentToolError("'path' is required when writing a project file.")
@@ -197,15 +278,7 @@ def _handle_write_project_file(context: AgentToolContext, params: Dict[str, Any]
     if not isinstance(content, str):
         raise AgentToolError("Provide the file contents as a string via 'content'.")
     append = bool(params.get("append"))
-    target = (root / path_value).resolve()
-    try:
-        root_resolved = root.resolve()
-    except OSError as exc:  # pragma: no cover - filesystem guard
-        raise AgentToolError(f"Unable to access project root: {exc}") from exc
-    try:
-        target.relative_to(root_resolved)
-    except ValueError as exc:
-        raise AgentToolError("File path must stay inside the project directory.") from exc
+    target = _resolve_project_path(context, path_value)
     try:
         target.parent.mkdir(parents=True, exist_ok=True)
         mode = "a" if append else "w"
@@ -218,105 +291,353 @@ def _handle_write_project_file(context: AgentToolContext, params: Dict[str, Any]
     return ToolResult(content=f"{operation} {len(content)} characters to “{path_value}”.\nPreview:\n{snippet}")
 
 
+def _handle_list_project_files(context: AgentToolContext, params: Dict[str, Any]) -> ToolResult:
+    root = _require_project_root(context)
+    depth = _clamp_int(
+        params.get("depth"),
+        default=3,
+        min_value=PROJECT_TREE_MIN_DEPTH,
+        max_value=PROJECT_TREE_MAX_DEPTH,
+    )
+    max_entries = _clamp_int(
+        params.get("max_entries"),
+        default=PROJECT_TREE_DEFAULT_MAX,
+        min_value=20,
+        max_value=PROJECT_TREE_MAX_LIMIT,
+    )
+    include_hidden = bool(params.get("include_hidden"))
+    lines: List[str] = []
+    listed = 0
+    for dirpath, dirnames, filenames in os.walk(root):
+        rel_dir = Path(dirpath).relative_to(root)
+        depth_index = 0 if rel_dir == Path(".") else len(rel_dir.parts)
+        dirnames[:] = sorted(
+            [name for name in dirnames if include_hidden or not _is_hidden_name(name)]
+        )
+        visible_files = sorted(
+            [name for name in filenames if include_hidden or not _is_hidden_name(name)]
+        )
+        label = context.project if depth_index == 0 else rel_dir.as_posix()
+        lines.append(f"{'  ' * depth_index}{label}/")
+        listed += 1
+        if listed >= max_entries:
+            break
+        for filename in visible_files:
+            target = Path(dirpath) / filename
+            rel_file = target.relative_to(root).as_posix()
+            try:
+                size_label = _format_bytes(target.stat().st_size)
+            except OSError:
+                size_label = "?"
+            lines.append(f"{'  ' * (depth_index + 1)}{rel_file} — {size_label}")
+            listed += 1
+            if listed >= max_entries:
+                break
+        if depth_index + 1 >= depth:
+            dirnames[:] = []
+        if listed >= max_entries:
+            break
+    if listed >= max_entries:
+        lines.append(f"…stopped after {max_entries} entries. Increase 'max_entries' to see more.")
+    return ToolResult(content=_truncate("\n".join(lines), MAX_TOOL_RESPONSE))
+
+
+def _handle_read_project_file(context: AgentToolContext, params: Dict[str, Any]) -> ToolResult:
+    target = _resolve_project_path(context, params.get("path") or "")
+    if target.is_dir():
+        raise AgentToolError("Target path is a directory. Provide a file path instead.")
+    limit = _clamp_int(
+        params.get("max_chars"),
+        default=PROJECT_FILE_MAX_CHARS,
+        min_value=256,
+        max_value=MAX_TOOL_RESPONSE,
+    )
+    preview = _read_text_preview(target, limit)
+    try:
+        size_label = _format_bytes(target.stat().st_size)
+    except OSError:
+        size_label = "unknown size"
+    header = f"{target.name} ({target.relative_to(_require_project_root(context))}) — {size_label}"
+    return ToolResult(content=f"{header}\n{preview}")
+
+
+def _handle_search_project_files(context: AgentToolContext, params: Dict[str, Any]) -> ToolResult:
+    root = _require_project_root(context)
+    needle = (params.get("query") or "").strip()
+    if not needle:
+        raise AgentToolError("'query' is required when searching project files.")
+    include_hidden = bool(params.get("include_hidden"))
+    max_matches = _clamp_int(
+        params.get("max_matches"),
+        default=8,
+        min_value=PROJECT_SEARCH_MIN_MATCHES,
+        max_value=PROJECT_SEARCH_MAX_MATCHES,
+    )
+    matches: List[str] = []
+    needle_lower = needle.lower()
+    for path in sorted(root.rglob("*")):
+        if len(matches) >= max_matches:
+            break
+        if not path.is_file():
+            continue
+        relative = path.relative_to(root)
+        if not include_hidden and _path_contains_hidden(relative):
+            continue
+        try:
+            size = path.stat().st_size
+        except OSError:
+            size = 0
+        if size > PROJECT_SEARCH_MAX_FILE_BYTES:
+            continue
+        try:
+            contents = path.read_text(encoding="utf-8")
+        except UnicodeDecodeError:
+            contents = path.read_text(encoding="utf-8", errors="ignore")
+        except OSError:
+            continue
+        snippets: List[str] = []
+        for line_number, line in enumerate(contents.splitlines(), 1):
+            if needle_lower in line.lower():
+                snippet = line.strip()
+                if len(snippet) > PROJECT_SEARCH_SNIPPET_CHARS:
+                    snippet = f"{snippet[:PROJECT_SEARCH_SNIPPET_CHARS]}…"
+                snippets.append(f"  L{line_number}: {snippet}")
+                if len(snippets) >= 3:
+                    break
+        if snippets:
+            block = [relative.as_posix()]
+            block.extend(snippets)
+            matches.append("\n".join(block))
+    if not matches:
+        return ToolResult(content=f"No matches for “{needle}”. Try a different query or enable 'include_hidden'.")
+    if len(matches) >= max_matches:
+        matches.append(f"…stopped after {max_matches} files. Use 'max_matches' to scan more.")
+    return ToolResult(content=_truncate("\n\n".join(matches), MAX_TOOL_RESPONSE))
+
+
+def _handle_web_search(context: AgentToolContext, params: Dict[str, Any]) -> ToolResult:
+    if not context.allow_web_search or context.web_search is None:
+        raise AgentToolError("Enable Bing web search in the assistant options before using this tool.")
+    query = (params.get("query") or "").strip()
+    if not query:
+        raise AgentToolError("'query' is required when calling web_search.")
+    count = _clamp_int(params.get("count"), default=5, min_value=1, max_value=10)
+    try:
+        results = context.web_search(query, count)
+    except AgentToolError:
+        raise
+    except Exception as exc:  # pragma: no cover - network and API guard
+        raise AgentToolError(f"Bing search failed: {exc}") from exc
+    if not results:
+        return ToolResult(content=f"No Bing results for “{query}”.")
+    lines: List[str] = [f"Bing search results for “{query}”:"]
+    for index, item in enumerate(results, 1):
+        title = item.get("title") or item.get("name") or f"Result {index}"
+        url = item.get("url") or item.get("link") or ""
+        snippet = (item.get("snippet") or item.get("description") or "").strip()
+        entry = f"{index}. {title}"
+        if url:
+            entry += f"\n   {url}"
+        if snippet:
+            entry += f"\n   {snippet}"
+        lines.append(entry)
+    return ToolResult(content=_truncate("\n\n".join(lines), MAX_TOOL_RESPONSE))
+
+
 class AgentToolset:
     """Registry of function-callable tools for the AI agent."""
 
     def __init__(self, context: AgentToolContext):
         self.context = context
-        self._tools: Dict[str, ToolDefinition] = {
-            tool.name: tool
-            for tool in (
+        tool_definitions: List[ToolDefinition] = [
+            ToolDefinition(
+                name="read_layout_file",
+                description="Read the normalized layout.json for the current project.",
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "max_chars": {
+                            "type": "integer",
+                            "minimum": 0,
+                            "description": "Optional limit for the size of the JSON snippet; set to 0 to disable truncation.",
+                        },
+                        "page": {
+                            "type": "integer",
+                            "minimum": 1,
+                            "description": "Return only this 1-indexed page from the document.",
+                        },
+                        "page_id": {
+                            "type": "string",
+                            "description": "Return only the page whose ID matches this value.",
+                        },
+                        "block_id": {
+                            "type": "string",
+                            "description": "Return only the block (plus page context) with this ID.",
+                        },
+                    },
+                    "additionalProperties": False,
+                },
+                handler=_handle_read_layout,
+            ),
+            ToolDefinition(
+                name="write_layout_file",
+                description=(
+                    "Overwrite layout.json with a new JSON object. Provide either a serialized string via "
+                    "'layout_json' or a structured object via 'layout'."
+                ),
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "layout_json": {"type": "string", "description": "Complete layout JSON as a string."},
+                        "layout": {"type": "object", "description": "Complete layout object."},
+                    },
+                    "additionalProperties": False,
+                },
+                handler=_handle_write_layout,
+            ),
+            ToolDefinition(
+                name="run_terminal_command",
+                description=(
+                    "Execute a Fyona terminal command (e.g., add text blocks, run `pages`, or `echo 2` to review captions)."
+                ),
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "command": {
+                            "type": "string",
+                            "description": "Exact terminal command to run, such as 'add --text \"Title\" --position (120,80)'.",
+                        }
+                    },
+                    "required": ["command"],
+                },
+                handler=_handle_terminal_command,
+            ),
+            ToolDefinition(
+                name="write_project_file",
+                description=(
+                    "Write or append text to a file inside the current project. "
+                    "Useful for applying code fixes directly instead of returning patches."
+                ),
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": "Relative path (inside the project directory) to write.",
+                        },
+                        "content": {
+                            "type": "string",
+                            "description": "Exact file contents to write.",
+                        },
+                        "append": {
+                            "type": "boolean",
+                            "description": "Set true to append instead of replacing the file.",
+                        },
+                    },
+                    "required": ["path", "content"],
+                    "additionalProperties": False,
+                },
+                handler=_handle_write_project_file,
+            ),
+            ToolDefinition(
+                name="list_project_files",
+                description="List folders and files inside the project workspace.",
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "depth": {
+                            "type": "integer",
+                            "minimum": PROJECT_TREE_MIN_DEPTH,
+                            "maximum": PROJECT_TREE_MAX_DEPTH,
+                            "description": "How many directory levels to include (default 3).",
+                        },
+                        "max_entries": {
+                            "type": "integer",
+                            "minimum": 20,
+                            "maximum": PROJECT_TREE_MAX_LIMIT,
+                            "description": "Maximum items to include in the listing (default 200).",
+                        },
+                        "include_hidden": {
+                            "type": "boolean",
+                            "description": "Set true to include dotfiles and dot-directories.",
+                        },
+                    },
+                    "additionalProperties": False,
+                },
+                handler=_handle_list_project_files,
+            ),
+            ToolDefinition(
+                name="read_project_file",
+                description="Read a text file from the project directory (UTF-8 preview).",
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "path": {
+                            "type": "string",
+                            "description": "Relative file path to open.",
+                        },
+                        "max_chars": {
+                            "type": "integer",
+                            "minimum": 256,
+                            "maximum": MAX_TOOL_RESPONSE,
+                            "description": "Limit for the returned preview (default 16,000).",
+                        },
+                    },
+                    "required": ["path"],
+                    "additionalProperties": False,
+                },
+                handler=_handle_read_project_file,
+            ),
+            ToolDefinition(
+                name="search_project_files",
+                description="Find text matches across project files (UTF-8 only).",
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "query": {
+                            "type": "string",
+                            "description": "Text to search for (case-insensitive).",
+                        },
+                        "max_matches": {
+                            "type": "integer",
+                            "minimum": PROJECT_SEARCH_MIN_MATCHES,
+                            "maximum": PROJECT_SEARCH_MAX_MATCHES,
+                            "description": "Maximum files to report (default 8).",
+                        },
+                        "include_hidden": {
+                            "type": "boolean",
+                            "description": "Include dotfiles while searching.",
+                        },
+                    },
+                    "required": ["query"],
+                    "additionalProperties": False,
+                },
+                handler=_handle_search_project_files,
+            ),
+        ]
+        if context.web_search is not None and context.allow_web_search:
+            tool_definitions.append(
                 ToolDefinition(
-                    name="read_layout_file",
-                    description="Read the normalized layout.json for the current project.",
+                    name="web_search",
+                    description="Search the web via Bing and return the top organic results.",
                     parameters={
                         "type": "object",
                         "properties": {
-                            "max_chars": {
-                                "type": "integer",
-                                "minimum": 0,
-                                "description": "Optional limit for the size of the JSON snippet; set to 0 to disable truncation.",
-                            },
-                            "page": {
+                            "query": {"type": "string", "description": "Search phrase to send to Bing."},
+                            "count": {
                                 "type": "integer",
                                 "minimum": 1,
-                                "description": "Return only this 1-indexed page from the document.",
-                            },
-                            "page_id": {
-                                "type": "string",
-                                "description": "Return only the page whose ID matches this value.",
-                            },
-                            "block_id": {
-                                "type": "string",
-                                "description": "Return only the block (plus page context) with this ID.",
+                                "maximum": 10,
+                                "description": "Maximum number of results to return (default 5).",
                             },
                         },
+                        "required": ["query"],
                         "additionalProperties": False,
                     },
-                    handler=_handle_read_layout,
-                ),
-                ToolDefinition(
-                    name="write_layout_file",
-                    description=(
-                        "Overwrite layout.json with a new JSON object. Provide either a serialized string via "
-                        "'layout_json' or a structured object via 'layout'."
-                    ),
-                    parameters={
-                        "type": "object",
-                        "properties": {
-                            "layout_json": {"type": "string", "description": "Complete layout JSON as a string."},
-                            "layout": {"type": "object", "description": "Complete layout object."},
-                        },
-                        "additionalProperties": False,
-                    },
-                    handler=_handle_write_layout,
-                ),
-                ToolDefinition(
-                    name="run_terminal_command",
-                    description=(
-                        "Execute a Fyona terminal command (e.g., add text blocks, run `pages`, or `echo 2` to review captions)."
-                    ),
-                    parameters={
-                        "type": "object",
-                        "properties": {
-                            "command": {
-                                "type": "string",
-                                "description": "Exact terminal command to run, such as 'add --text ""Title"" --position (120,80)'.",
-                            }
-                        },
-                        "required": ["command"],
-                    },
-                    handler=_handle_terminal_command,
-                ),
-                ToolDefinition(
-                    name="write_project_file",
-                    description=(
-                        "Write or append text to a file inside the current project. "
-                        "Useful for applying code fixes directly instead of returning patches."
-                    ),
-                    parameters={
-                        "type": "object",
-                        "properties": {
-                            "path": {
-                                "type": "string",
-                                "description": "Relative path (inside the project directory) to write.",
-                            },
-                            "content": {
-                                "type": "string",
-                                "description": "Exact file contents to write.",
-                            },
-                            "append": {
-                                "type": "boolean",
-                                "description": "Set true to append instead of replacing the file.",
-                            },
-                        },
-                        "required": ["path", "content"],
-                        "additionalProperties": False,
-                    },
-                    handler=_handle_write_project_file,
-                ),
+                    handler=_handle_web_search,
+                )
             )
-        }
+        self._tools: Dict[str, ToolDefinition] = {tool.name: tool for tool in tool_definitions}
 
     @property
     def specs(self) -> List[Dict[str, Any]]:

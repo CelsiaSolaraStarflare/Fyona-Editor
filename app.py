@@ -5,6 +5,9 @@ import os
 import re
 import time
 import threading
+import urllib.error
+import urllib.parse
+import urllib.request
 from copy import deepcopy
 from datetime import datetime
 from pathlib import Path
@@ -103,6 +106,10 @@ TOKEN_USAGE_STATE: Dict[str, float] = {
     "lifetime_tokens": 0,
     "lifetime_image_bytes": 0,
 }
+DEFAULT_BING_SEARCH_ENDPOINT = "https://api.bing.microsoft.com/v7.0/search"
+BING_SEARCH_ENDPOINT = os.getenv("BING_SEARCH_ENDPOINT", DEFAULT_BING_SEARCH_ENDPOINT)
+BING_SEARCH_API_KEY = os.getenv("BING_SEARCH_API_KEY")
+BING_SEARCH_MARKET = os.getenv("BING_SEARCH_MARKET", "en-US")
 
 DEFAULT_LAYOUT: Dict[str, Any] = {
     "columns": 3,
@@ -162,6 +169,58 @@ def media_dir(name: str) -> Path:
     folder = project_dir(name) / "media"
     folder.mkdir(parents=True, exist_ok=True)
     return folder
+
+
+def _bing_search_available() -> bool:
+    return bool(BING_SEARCH_API_KEY and BING_SEARCH_ENDPOINT)
+
+
+def _perform_bing_web_search(query: str, *, count: int = 5) -> List[Dict[str, str]]:
+    if not _bing_search_available():
+        raise RuntimeError("Bing search is not configured on this server.")
+    clean_query = (query or "").strip()
+    if not clean_query:
+        return []
+    safe_count = max(1, min(int(count or 5), 10))
+    params = {
+        "q": clean_query,
+        "count": safe_count,
+        "mkt": BING_SEARCH_MARKET or "en-US",
+        "textDecorations": "false",
+        "textFormat": "Raw",
+        "safeSearch": "Moderate",
+    }
+    url = f"{BING_SEARCH_ENDPOINT}?{urllib.parse.urlencode(params)}"
+    request = urllib.request.Request(url)
+    request.add_header("Ocp-Apim-Subscription-Key", BING_SEARCH_API_KEY or "")
+    request.add_header("User-Agent", "FyonaEditor/1.0")
+    try:
+        with urllib.request.urlopen(request, timeout=12) as response:
+            payload = response.read().decode("utf-8")
+            data = json.loads(payload)
+    except urllib.error.HTTPError as exc:
+        detail = ""
+        try:
+            detail = exc.read().decode("utf-8")
+        except Exception:  # pragma: no cover - best effort diagnostics
+            detail = ""
+        message = detail.strip()[:200] or exc.reason
+        raise RuntimeError(f"Bing search HTTP {exc.code}: {message}") from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"Bing search connection failed: {exc.reason}") from exc
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"Bing search returned invalid JSON: {exc}") from exc
+    web_pages = data.get("webPages", {}).get("value", []) or []
+    results: List[Dict[str, str]] = []
+    for item in web_pages[:safe_count]:
+        results.append(
+            {
+                "title": item.get("name") or "",
+                "url": item.get("url") or "",
+                "snippet": item.get("snippet") or "",
+            }
+        )
+    return results
 
 
 def deep_merge(target: Dict[str, Any], updates: Dict[str, Any]) -> Dict[str, Any]:
@@ -983,9 +1042,20 @@ def _call_qwen_completion(messages: List[Dict[str, Any]]) -> str:
     return content or "I could not find anything helpful to share. Try rephrasing your request."
 
 
-def _build_agent_toolset(project: str) -> AgentToolset:
+def _build_agent_toolset(project: str, permissions: Optional[Dict[str, bool]] = None) -> AgentToolset:
     def _terminal_factory(layout: Dict[str, Any]) -> TerminalProcessor:
         return TerminalProcessor(project=project, layout=layout, block_id_factory=_generate_block_id)
+
+    perm_payload = permissions or {}
+    allow_layout_edits = bool(perm_payload.get("allow_layout_edits"))
+    allow_web_search = bool(perm_payload.get("allow_web_search") and _bing_search_available())
+
+    web_search_callable: Optional[Callable[[str, int], List[Dict[str, str]]]] = None
+    if allow_web_search:
+        def _web_search_adapter(query: str, count: int) -> List[Dict[str, str]]:
+            return _perform_bing_web_search(query, count=count)
+
+        web_search_callable = _web_search_adapter
 
     context = AgentToolContext(
         project=project,
@@ -993,6 +1063,9 @@ def _build_agent_toolset(project: str) -> AgentToolset:
         save_layout=save_layout,
         terminal_factory=_terminal_factory,
         project_root=project_dir(project),
+        allow_layout_edits=allow_layout_edits,
+        allow_web_search=allow_web_search,
+        web_search=web_search_callable,
     )
     return AgentToolset(context)
 
@@ -1002,8 +1075,9 @@ def _run_agent_with_tools(
     project: str,
     *,
     progress_callback: Optional[Callable[[str, Optional[str]], None]] = None,
+    permissions: Optional[Dict[str, bool]] = None,
 ) -> Tuple[str, bool, List[Dict[str, Any]]]:
-    toolkit = _build_agent_toolset(project)
+    toolkit = _build_agent_toolset(project, permissions=permissions)
     conversation = list(messages)
     layout_changed = False
     trace: List[Dict[str, Any]] = []
@@ -1138,6 +1212,7 @@ def _generate_chat_reply(
     *,
     project: str,
     allow_tools: bool = False,
+    tool_permissions: Optional[Dict[str, bool]] = None,
     progress_callback: Optional[Callable[[str, Optional[str]], None]] = None,
 ) -> Tuple[str, bool, List[Dict[str, Any]]]:
     if not _dashscope_configured():
@@ -1145,7 +1220,12 @@ def _generate_chat_reply(
 
     messages = _build_qwen_messages(message or "", attachments, agent_snapshot)
     if allow_tools:
-        reply, layout_changed, trace = _run_agent_with_tools(messages, project, progress_callback=progress_callback)
+        reply, layout_changed, trace = _run_agent_with_tools(
+            messages,
+            project,
+            progress_callback=progress_callback,
+            permissions=tool_permissions,
+        )
         return reply, layout_changed, trace
 
     try:
@@ -1164,7 +1244,7 @@ def _generate_chat_reply(
 # ---------------------------------------------------------------------------
 @app.route("/")
 def index() -> str:
-    return render_template("index.html")
+    return render_template("index.html", bing_search_enabled=_bing_search_available())
 
 
 @app.route("/welcome", methods=["GET"])
@@ -1421,6 +1501,7 @@ def chat_assistant():
     agent_mode = bool(payload.get("agentMode"))
     permissions_payload = payload.get("agentPermissions") or {}
     allow_layout_edits = bool(permissions_payload.get("allowLayoutEdits"))
+    allow_web_search = agent_mode and bool(permissions_payload.get("allowWebSearch"))
     progress_token = (payload.get("progressToken") or "").strip() or None
     _init_agent_progress(progress_token, "starting", "Contacting the assistant…")
 
@@ -1447,7 +1528,11 @@ def chat_assistant():
         else:
             agent_snapshot = _build_project_snapshot(project)
     layout = agent_snapshot["layout"] if agent_snapshot else load_layout(project)
-    allow_tools = agent_mode and allow_layout_edits
+    allow_tools = agent_mode
+    tool_permissions = {
+        "allow_layout_edits": allow_layout_edits,
+        "allow_web_search": allow_web_search,
+    }
     def _progress(status: str, detail: Optional[str] = None) -> None:
         _update_agent_progress(progress_token, status=status, detail=detail or status)
 
@@ -1457,6 +1542,7 @@ def chat_assistant():
         agent_snapshot,
         project=project,
         allow_tools=allow_tools,
+        tool_permissions=tool_permissions,
         progress_callback=_progress,
     )
     if layout_updated:

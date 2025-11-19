@@ -212,10 +212,31 @@
             <div class="chat-agent-indicator" id="chat-agent-indicator" hidden>
                 <strong>Agent Mode enabled</strong>
                 <span id="chat-agent-permission-summary">The assistant can inspect your project files.</span>
-                <label class="chat-agent-permission">
-                    <input type="checkbox" id="chat-agent-allow-edits">
-                    Allow layout edits
-                </label>
+                <div class="chat-agent-options" id="chat-agent-options" hidden>
+                    <button
+                        type="button"
+                        class="chat-agent-options__toggle"
+                        id="chat-agent-options-toggle"
+                        aria-expanded="false"
+                        aria-controls="chat-agent-options-panel"
+                        aria-label="Agent abilities"
+                        title="Agent abilities"
+                    >
+                        <span class="chat-agent-options__dots" aria-hidden="true">⋯</span>
+                        <span class="chat-agent-options__chevron" aria-hidden="true">▾</span>
+                    </button>
+                    <div class="chat-agent-options__panel" id="chat-agent-options-panel" hidden>
+                        <p class="chat-agent-options__hint">Choose what Fyona is allowed to do.</p>
+                        <label class="chat-agent-permission">
+                            <input type="checkbox" id="chat-agent-allow-edits">
+                            Allow layout edits
+                        </label>
+                        <label class="chat-agent-permission">
+                            <input type="checkbox" id="chat-agent-allow-web">
+                            Enable Bing web search
+                        </label>
+                    </div>
+                </div>
             </div>
             <div class="chat-log" id="chat-log" role="log" aria-live="polite"></div>
             <div class="chat-panel__attachments" id="chat-attachments" hidden></div>
@@ -229,6 +250,11 @@
         </section>
     </div>
 
+    <script>
+        window.FYONA_CONFIG = Object.assign({}, window.FYONA_CONFIG, {
+            bingSearchAvailable: {{ 'true' if bing_search_enabled else 'false' }}
+        });
+    </script>
     <script src="{{ url_for('static', filename='js/app.js') }}" defer></script>
 </body>
 </html>

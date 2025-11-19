@@ -55,10 +55,16 @@ document.addEventListener('DOMContentLoaded', () => {
         chatAgentToggle: document.getElementById('chat-agent-toggle'),
         chatAgentIndicator: document.getElementById('chat-agent-indicator'),
         chatAgentAllowEdits: document.getElementById('chat-agent-allow-edits'),
+        chatAgentAllowWeb: document.getElementById('chat-agent-allow-web'),
         chatAgentPermissionSummary: document.getElementById('chat-agent-permission-summary'),
+        chatAgentOptions: document.getElementById('chat-agent-options'),
+        chatAgentOptionsToggle: document.getElementById('chat-agent-options-toggle'),
+        chatAgentOptionsPanel: document.getElementById('chat-agent-options-panel'),
         chatResizeHandle: document.getElementById('chat-resize-handle'),
         chatTokenStats: document.getElementById('chat-token-stats'),
     };
+
+    const fyonaConfig = window.FYONA_CONFIG || {};
 
     const params = new URLSearchParams(window.location.search);
     const initialProject = (params.get('project') || '').trim() || 'default';
@@ -85,6 +91,9 @@ document.addEventListener('DOMContentLoaded', () => {
             agentEnabled: false,
             agentSnapshot: null,
             agentCanEdit: false,
+            agentAllowWeb: false,
+            optionsOpen: false,
+            bingSearchAvailable: !!fyonaConfig.bingSearchAvailable,
             panelSize: null,
             resizing: false,
             progress: {
@@ -557,10 +566,12 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
                 els.projectSelect.value = state.project;
             }
-            if (previousProject !== project && state.chat.agentEnabled) {
-                state.chat.agentEnabled = false;
-                state.chat.agentSnapshot = null;
-                state.chat.agentCanEdit = false;
+        if (previousProject !== project && state.chat.agentEnabled) {
+            state.chat.agentEnabled = false;
+            state.chat.agentSnapshot = null;
+            state.chat.agentCanEdit = false;
+            state.chat.agentAllowWeb = false;
+            state.chat.optionsOpen = false;
                 updateAgentToggle();
             }
             state.layout = { ...layout };
@@ -1782,6 +1793,12 @@ document.addEventListener('DOMContentLoaded', () => {
         if (els.chatAgentAllowEdits) {
             els.chatAgentAllowEdits.addEventListener('change', handleAgentPermissionToggle);
         }
+        if (els.chatAgentAllowWeb) {
+            els.chatAgentAllowWeb.addEventListener('change', handleAgentWebToggle);
+        }
+        if (els.chatAgentOptionsToggle) {
+            els.chatAgentOptionsToggle.addEventListener('click', () => toggleAgentOptionsPanel());
+        }
         initChatResizeHandle();
         setChatStatus('Assistant ready');
         updateAgentToggle();
@@ -1963,6 +1980,7 @@ document.addEventListener('DOMContentLoaded', () => {
                     agentSnapshot: state.chat.agentSnapshot,
                     agentPermissions: {
                         allowLayoutEdits: !!state.chat.agentCanEdit,
+                        allowWebSearch: !!state.chat.agentAllowWeb,
                     },
                     progressToken,
                 }),
@@ -2800,11 +2818,43 @@ document.addEventListener('DOMContentLoaded', () => {
         showToast(state.chat.agentCanEdit ? 'Agent can now edit layout.json.' : 'Agent edits disabled.');
     }
 
+    function handleAgentWebToggle(event) {
+        const checkbox = event.target;
+        if (!checkbox) return;
+        if (!state.chat.agentEnabled) {
+            checkbox.checked = false;
+            showToast('Enable Agent Mode before allowing web search.', true);
+            return;
+        }
+        if (!state.chat.bingSearchAvailable) {
+            checkbox.checked = false;
+            showToast('Bing web search is not configured on this server.', true);
+            return;
+        }
+        state.chat.agentAllowWeb = !!checkbox.checked;
+        updateAgentPermissionsUI();
+        showToast(state.chat.agentAllowWeb ? 'Agent can now research with Bing search.' : 'Bing search disabled for the agent.');
+    }
+
+    function toggleAgentOptionsPanel(forceOpen) {
+        if (!els.chatAgentOptionsPanel || !els.chatAgentOptionsToggle) return;
+        if (!state.chat.agentEnabled) {
+            state.chat.optionsOpen = false;
+            updateAgentPermissionsUI();
+            return;
+        }
+        const next = typeof forceOpen === 'boolean' ? forceOpen : !state.chat.optionsOpen;
+        state.chat.optionsOpen = next;
+        updateAgentPermissionsUI();
+    }
+
     async function toggleAgentMode() {
         if (state.chat.agentEnabled) {
             state.chat.agentEnabled = false;
             state.chat.agentSnapshot = null;
             state.chat.agentCanEdit = false;
+            state.chat.agentAllowWeb = false;
+            state.chat.optionsOpen = false;
             updateAgentToggle();
             pushChatMessage({
                 role: 'system',
@@ -2829,6 +2879,7 @@ document.addEventListener('DOMContentLoaded', () => {
             state.chat.agentEnabled = true;
             state.chat.agentSnapshot = data.snapshot;
             state.chat.agentCanEdit = false;
+            state.chat.agentAllowWeb = false;
             pushChatMessage({
                 role: 'system',
                 content: 'Agent Mode enabled. The assistant can now inspect the project directory and layout JSON. Enable “Allow layout edits” when you want the agent to run commands.',
@@ -2867,15 +2918,53 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function updateAgentPermissionsUI() {
+        if (!state.chat.agentEnabled && state.chat.optionsOpen) {
+            state.chat.optionsOpen = false;
+        }
         if (els.chatAgentAllowEdits) {
             els.chatAgentAllowEdits.disabled = !state.chat.agentEnabled;
             els.chatAgentAllowEdits.checked = state.chat.agentEnabled && !!state.chat.agentCanEdit;
+            const wrapper = els.chatAgentAllowEdits.closest('.chat-agent-permission');
+            if (wrapper) {
+                wrapper.classList.toggle('is-disabled', els.chatAgentAllowEdits.disabled);
+            }
+        }
+        if (els.chatAgentAllowWeb) {
+            const disabled = !state.chat.agentEnabled || !state.chat.bingSearchAvailable;
+            els.chatAgentAllowWeb.disabled = disabled;
+            els.chatAgentAllowWeb.checked = state.chat.agentEnabled && !!state.chat.agentAllowWeb;
+            const wrapper = els.chatAgentAllowWeb.closest('.chat-agent-permission');
+            if (wrapper) {
+                wrapper.classList.toggle('is-disabled', disabled);
+                if (disabled && !state.chat.bingSearchAvailable) {
+                    wrapper.title = 'Bing web search is not configured on this server.';
+                } else {
+                    wrapper.removeAttribute('title');
+                }
+            }
+        }
+        if (els.chatAgentOptions) {
+            els.chatAgentOptions.hidden = !state.chat.agentEnabled;
+        }
+        if (els.chatAgentOptionsToggle) {
+            els.chatAgentOptionsToggle.disabled = !state.chat.agentEnabled;
+            els.chatAgentOptionsToggle.setAttribute(
+                'aria-expanded',
+                state.chat.agentEnabled && state.chat.optionsOpen ? 'true' : 'false'
+            );
+        }
+        if (els.chatAgentOptionsPanel) {
+            els.chatAgentOptionsPanel.hidden = !(state.chat.agentEnabled && state.chat.optionsOpen);
         }
         if (els.chatAgentPermissionSummary) {
             if (!state.chat.agentEnabled) {
                 els.chatAgentPermissionSummary.textContent = 'Enable Agent Mode to share project structure and layout.';
+            } else if (state.chat.agentCanEdit && state.chat.agentAllowWeb) {
+                els.chatAgentPermissionSummary.textContent = 'Fyona can edit layout.json and research via Bing web search.';
             } else if (state.chat.agentCanEdit) {
                 els.chatAgentPermissionSummary.textContent = 'Fyona can now read files and run layout-editing commands.';
+            } else if (state.chat.agentAllowWeb) {
+                els.chatAgentPermissionSummary.textContent = 'Fyona can research with Bing search but cannot change files.';
             } else {
                 els.chatAgentPermissionSummary.textContent = 'Fyona has read-only access until you allow layout edits.';
             }
