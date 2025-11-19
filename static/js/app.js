@@ -127,6 +127,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const CHAT_PANEL_MAX_WIDTH = 640;
     const CHAT_PANEL_MIN_HEIGHT = 260;
     const CHAT_PANEL_MAX_HEIGHT = 640;
+    const CHAT_TRACE_STEP_LIMIT = 12;
+    const CHAT_TRACE_TEXT_LIMIT = 180;
     let layoutSyncTimeout = null;
     const AUTO_PAGE_NAME_PATTERN = /^page\s+\d+$/i;
     const hydratedPages = new Set();
@@ -1735,6 +1737,14 @@ document.addEventListener('DOMContentLoaded', () => {
                 content: data.reply || 'I received your message.',
                 attachments: replyAttachments,
             });
+            const traceSummary = formatAgentTraceSummary(data.agentTrace);
+            if (traceSummary) {
+                pushChatMessage({
+                    role: 'system',
+                    content: traceSummary,
+                    variant: 'muted',
+                });
+            }
             if (data.actions?.layoutUpdated) {
                 await loadLayout(state.project);
                 showToast('Agent updated layout.json');
@@ -1753,12 +1763,57 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
+    function formatAgentTraceSummary(traceItems) {
+        if (!Array.isArray(traceItems) || !traceItems.length) return '';
+        const truncated = traceItems.length > CHAT_TRACE_STEP_LIMIT;
+        const lines = [];
+        let stepCounter = 0;
+        traceItems.slice(0, CHAT_TRACE_STEP_LIMIT).forEach((entry) => {
+            if (!entry || typeof entry !== 'object') return;
+            const kind = String(entry.kind || '').toLowerCase();
+            let detail = '';
+            if (kind === 'tool') {
+                const status = entry.status === 'error' ? '✖' : '✓';
+                const name = entry.name || 'tool';
+                const summary = summarizeTextSnippet(entry.result || entry.message || '');
+                detail = `${status} ${name}${summary ? ` — ${summary}` : ''}`;
+            } else if (kind === 'thought') {
+                const thought = summarizeTextSnippet(entry.message || '');
+                if (thought) {
+                    detail = thought;
+                }
+            } else if (kind === 'limit' || kind === 'error') {
+                const warning = summarizeTextSnippet(entry.message || '');
+                detail = `⚠ ${warning || 'Agent stopped before finishing.'}`;
+            }
+            if (!detail) return;
+            stepCounter += 1;
+            lines.push(`${stepCounter}. ${detail}`);
+        });
+        if (!lines.length) {
+            return '';
+        }
+        if (truncated) {
+            lines.push('…additional steps omitted…');
+        }
+        return `Agent steps:\n${lines.join('\n')}`;
+    }
+
+    function summarizeTextSnippet(text, limit = CHAT_TRACE_TEXT_LIMIT) {
+        if (!text) return '';
+        const value = String(text).replace(/\s+/g, ' ').trim();
+        if (!value) return '';
+        if (value.length <= limit) return value;
+        return `${value.slice(0, limit)}…`;
+    }
+
     function pushChatMessage(message) {
         const payload = {
             id: `msg-${Date.now()}-${Math.random().toString(16).slice(2)}`,
             role: message.role || 'assistant',
             content: message.content || '',
             attachments: (message.attachments || []).map((att) => ({ ...att })),
+            variant: message.variant || null,
         };
         state.chat.messages.push(payload);
         if (state.chat.messages.length > 200) {
@@ -1773,11 +1828,17 @@ document.addEventListener('DOMContentLoaded', () => {
         state.chat.messages.forEach((message) => {
             const wrapper = document.createElement('div');
             wrapper.className = `chat-message chat-message--${message.role}`;
+            if (message.variant) {
+                wrapper.classList.add(`chat-message--${message.variant}`);
+            }
             const bubble = document.createElement('div');
             bubble.className = 'chat-message__bubble';
             const textEl = document.createElement('div');
             textEl.className = 'chat-message__text';
             textEl.textContent = message.content || '';
+            if (message.variant === 'muted') {
+                textEl.classList.add('chat-message__text--muted');
+            }
             bubble.appendChild(textEl);
             if (message.attachments && message.attachments.length) {
                 const attachmentsEl = document.createElement('div');

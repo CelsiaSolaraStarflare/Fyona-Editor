@@ -876,6 +876,11 @@ input:focus {
     gap: 8px;
 }
 
+.chat-message--muted .chat-message__bubble {
+    background: rgba(17, 24, 39, 0.03);
+    box-shadow: none;
+}
+
 .chat-message--user .chat-message__bubble {
     background: linear-gradient(140deg, #485efb, #2f4be0);
     color: white;
@@ -896,6 +901,11 @@ input:focus {
     white-space: pre-wrap;
     word-break: break-word;
     font-size: 0.95rem;
+}
+
+.chat-message__text--muted {
+    color: rgba(17, 24, 39, 0.6);
+    font-size: 0.85rem;
 }
 
 .chat-message__attachments {

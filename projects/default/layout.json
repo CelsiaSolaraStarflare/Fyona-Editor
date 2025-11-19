@@ -3,7 +3,7 @@
   "baseline": 24,
   "gutter": 24,
   "snap": true,
-  "zoom": 1.0,
+  "zoom": 1,
   "orientation": "portrait",
   "format": "A4",
   "dimensions": {
@@ -53,6 +53,29 @@
         "fontWeight": 400,
         "letterSpacing": 0,
         "lineHeight": 1.5
+      }
+    },
+    {
+      "id": "block-footer",
+      "type": "text",
+      "content": "Issue 01 • Spring 2025",
+      "position": {
+        "left": 47,
+        "top": 1059,
+        "width": 701,
+        "height": 55
+      },
+      "backgroundColor": "#050816",
+      "textColor": "#475569",
+      "borderRadius": 0,
+      "imageUrl": null,
+      "typography": {
+        "fontFamily": "inter",
+        "fontSize": 11,
+        "fontWeight": 500,
+        "letterSpacing": 0.16,
+        "lineHeight": 1.4,
+        "transform": "uppercase"
       }
     }
   ],
@@ -105,6 +128,29 @@
             "letterSpacing": 0,
             "lineHeight": 1.5
           }
+        },
+        {
+          "id": "block-footer",
+          "type": "text",
+          "content": "Issue 01 • Spring 2025",
+          "position": {
+            "left": 47,
+            "top": 1059,
+            "width": 701,
+            "height": 55
+          },
+          "backgroundColor": "#050816",
+          "textColor": "#475569",
+          "borderRadius": 0,
+          "imageUrl": null,
+          "typography": {
+            "fontFamily": "inter",
+            "fontSize": 11,
+            "fontWeight": 500,
+            "letterSpacing": 0.16,
+            "lineHeight": 1.4,
+            "transform": "uppercase"
+          }
         }
       ],
       "dimensions": {
@@ -122,7 +168,107 @@
       "id": "page-canvas",
       "name": "Canvas",
       "order": 2,
-      "blocks": [],
+      "blocks": [
+        {
+          "id": "block-canvas-heading",
+          "type": "text",
+          "content": "The Editorial System",
+          "position": {
+            "left": 48,
+            "top": 48,
+            "width": 384,
+            "height": 48
+          },
+          "backgroundColor": "#050816",
+          "textColor": "#f8fafc",
+          "borderRadius": 0,
+          "imageUrl": null,
+          "typography": {
+            "fontFamily": "inter",
+            "fontSize": 28,
+            "fontWeight": 700,
+            "letterSpacing": 0.04,
+            "lineHeight": 1.2
+          }
+        },
+        {
+          "id": "block-canvas-body",
+          "type": "text",
+          "content": "Editorial systems are the backbone of modern publishing. They unify design, content, and workflow into a cohesive experience that scales across platforms and teams. From modular grids to dynamic typography, every element is engineered for clarity, consistency, and impact.",
+          "position": {
+            "left": 48,
+            "top": 108,
+            "width": 384,
+            "height": 120
+          },
+          "backgroundColor": "#050816",
+          "textColor": "#cbd5f5",
+          "borderRadius": 0,
+          "imageUrl": null,
+          "typography": {
+            "fontFamily": "inter",
+            "fontSize": 13,
+            "fontWeight": 400,
+            "letterSpacing": 0,
+            "lineHeight": 1.5
+          }
+        },
+        {
+          "id": "block-canvas-image",
+          "type": "image",
+          "content": "",
+          "position": {
+            "left": 456,
+            "top": 48,
+            "width": 192,
+            "height": 192
+          },
+          "backgroundColor": "#050816",
+          "textColor": "#f8fafc",
+          "borderRadius": 8,
+          "imageUrl": "media/Weixin_Image_2025-11-16_234718_437-358aa4b1ad.png",
+          "typography": {}
+        },
+        {
+          "id": "block-canvas-caption",
+          "type": "text",
+          "content": "A modular grid system in action",
+          "position": {
+            "left": 456,
+            "top": 252,
+            "width": 192,
+            "height": 24
+          },
+          "backgroundColor": "#050816",
+          "textColor": "#475569",
+          "borderRadius": 0,
+          "imageUrl": null,
+          "typography": {
+            "fontFamily": "inter",
+            "fontSize": 11,
+            "fontWeight": 500,
+            "letterSpacing": 0.16,
+            "lineHeight": 1.4,
+            "transform": "uppercase"
+          }
+        },
+        {
+          "id": "block-canvas-divider",
+          "type": "shape",
+          "content": "",
+          "position": {
+            "left": 48,
+            "top": 240,
+            "width": 384,
+            "height": 4
+          },
+          "backgroundColor": "#a855f7",
+          "textColor": "#000000",
+          "borderRadius": 0,
+          "imageUrl": null,
+          "typography": {}
+        }
+      ],
       "dimensions": {
         "height": 1123,
         "width": 794

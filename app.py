@@ -678,14 +678,31 @@ def _build_agent_toolset(project: str) -> AgentToolset:
     return AgentToolset(context)
 
 
-def _run_agent_with_tools(messages: List[Dict[str, Any]], project: str) -> Tuple[str, bool]:
+def _run_agent_with_tools(messages: List[Dict[str, Any]], project: str) -> Tuple[str, bool, List[Dict[str, Any]]]:
     toolkit = _build_agent_toolset(project)
     conversation = list(messages)
     layout_changed = False
-    for _ in range(MAX_AGENT_TOOL_CALLS):
+    trace: List[Dict[str, Any]] = []
+
+    def _loop(remaining_calls: int) -> Tuple[str, bool, List[Dict[str, Any]]]:
+        nonlocal layout_changed
+        if remaining_calls <= 0:
+            trace.append({"kind": "limit", "message": "Reached the maximum number of agent tool calls."})
+            return (
+                "I reached the tool usage limit before finishing the task. Summarize the remaining work for the user.",
+                layout_changed,
+                trace,
+            )
+
         response_message = _request_qwen_message(conversation, tools=toolkit.specs)
         if not response_message:
-            break
+            trace.append({"kind": "error", "message": "Assistant response was empty."})
+            return (
+                "I could not contact the assistant to keep running tools. Please try again.",
+                layout_changed,
+                trace,
+            )
+
         payload: Dict[str, Any] = {
             "role": getattr(response_message, "role", "assistant"),
             "content": _serialize_message_content(getattr(response_message, "content", "")),
@@ -694,33 +711,54 @@ def _run_agent_with_tools(messages: List[Dict[str, Any]], project: str) -> Tuple
         if tool_calls:
             payload["tool_calls"] = tool_calls
         conversation.append(payload)
-        if not tool_calls:
-            final_text = _message_content_to_text(getattr(response_message, "content", ""))
-            if final_text:
-                return final_text, layout_changed
-            continue
-        for call in tool_calls:
-            function = call.get("function") or {}
-            name = function.get("name") or ""
-            arguments = function.get("arguments") or "{}"
-            try:
-                result = toolkit.invoke(name, arguments)
-                tool_output = result.content
-                layout_changed = layout_changed or result.layout_changed
-            except AgentToolError as exc:
-                tool_output = f"Tool error: {exc}"
-            except Exception:  # pragma: no cover - defensive guard
-                app.logger.exception("agent tool invocation failed")
-                tool_output = "Tool error: unexpected failure while running this command."
-            conversation.append(
-                {
-                    "role": "tool",
-                    "tool_call_id": call.get("id") or "",
-                    "name": name,
-                    "content": tool_output,
+
+        message_text = _message_content_to_text(getattr(response_message, "content", ""))
+        if tool_calls:
+            if message_text:
+                trace.append({"kind": "thought", "message": message_text})
+            for call in tool_calls:
+                function = call.get("function") or {}
+                name = function.get("name") or ""
+                arguments = function.get("arguments") or "{}"
+                entry: Dict[str, Any] = {
+                    "kind": "tool",
+                    "name": name or "unknown_tool",
+                    "arguments": arguments,
                 }
-            )
-    return "I reached the tool usage limit before finishing the task. Summarize the remaining work for the user.", layout_changed
+                try:
+                    result = toolkit.invoke(name, arguments)
+                    tool_output = result.content
+                    layout_changed = layout_changed or result.layout_changed
+                    entry["status"] = "ok"
+                    entry["result"] = tool_output
+                except AgentToolError as exc:
+                    tool_output = f"Tool error: {exc}"
+                    entry["status"] = "error"
+                    entry["result"] = tool_output
+                except Exception:  # pragma: no cover - defensive guard
+                    app.logger.exception("agent tool invocation failed")
+                    tool_output = "Tool error: unexpected failure while running this command."
+                    entry["status"] = "error"
+                    entry["result"] = tool_output
+                trace.append(entry)
+                conversation.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": call.get("id") or "",
+                        "name": name,
+                        "content": tool_output,
+                    }
+                )
+            return _loop(remaining_calls - 1)
+
+        if message_text:
+            trace.append({"kind": "final", "message": message_text})
+            return message_text, layout_changed, trace
+
+        trace.append({"kind": "thought", "message": "Assistant replied without content, continuing…"})
+        return _loop(remaining_calls - 1)
+
+    return _loop(MAX_AGENT_TOOL_CALLS)
 
 
 def _fallback_chat_reply(message: str, attachments: List[Dict[str, Any]], agent_snapshot: Optional[Dict[str, Any]]) -> str:
@@ -747,22 +785,22 @@ def _generate_chat_reply(
     *,
     project: str,
     allow_tools: bool = False,
-) -> Tuple[str, bool]:
+) -> Tuple[str, bool, List[Dict[str, Any]]]:
     if not _dashscope_configured():
-        return _fallback_chat_reply(message, attachments, agent_snapshot), False
+        return _fallback_chat_reply(message, attachments, agent_snapshot), False, []
 
     messages = _build_qwen_messages(message or "", attachments, agent_snapshot)
     if allow_tools:
-        reply, layout_changed = _run_agent_with_tools(messages, project)
-        return reply, layout_changed
+        reply, layout_changed, trace = _run_agent_with_tools(messages, project)
+        return reply, layout_changed, trace
 
     try:
         reply = _call_qwen_completion(messages)
-        return reply, False
+        return reply, False, []
     except Exception as exc:  # pragma: no cover - network and SDK failures
         app.logger.exception("Qwen chat request failed: {error}".format(error=exc))
         fallback = _fallback_chat_reply(message, attachments, agent_snapshot)
-        return f"{fallback} Assistant error: {exc.__class__.__name__}.", False
+        return f"{fallback} Assistant error: {exc.__class__.__name__}.", False, []
 
 
 # ---------------------------------------------------------------------------
@@ -1052,7 +1090,7 @@ def chat_assistant():
             agent_snapshot = _build_project_snapshot(project)
     layout = agent_snapshot["layout"] if agent_snapshot else load_layout(project)
     allow_tools = agent_mode and allow_layout_edits
-    reply, layout_updated = _generate_chat_reply(
+    reply, layout_updated, agent_trace = _generate_chat_reply(
         message,
         attachments,
         agent_snapshot,
@@ -1071,6 +1109,7 @@ def chat_assistant():
             "success": True,
             "reply": reply,
             "agentSnapshot": agent_snapshot,
+            "agentTrace": agent_trace,
             "actions": {
                 "layoutUpdated": layout_updated,
             },
