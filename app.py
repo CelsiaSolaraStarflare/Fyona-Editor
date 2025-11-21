@@ -1367,6 +1367,65 @@ def _run_agent_with_tools(
             remaining_calls -= 1
 
 
+def _evaluate_current_state(project: str, agent_snapshot: Optional[Dict[str, Any]]) -> str:
+    """
+    Use the reasoning model to evaluate the current layout state and determine
+    if more work is needed or if the current state is satisfactory.
+    """
+    if not _dashscope_configured():
+        return "Cannot evaluate state - model not configured"
+
+    # Build a focused message asking for evaluation of the current layout
+    evaluation_prompt = (
+        "Evaluate the current layout state and provide a brief assessment. "
+        "Consider: "
+        "- Is the layout aesthetically pleasing and well-organized? "
+        "- Does it follow good design principles? "
+        "- Are there obvious improvements that could be made? "
+        "- Does it meet the requirements of a good editorial layout? "
+        "Respond with whether the layout is satisfactory and what (if anything) needs improvement."
+    )
+
+    # Create a focused snapshot for evaluation
+    evaluation_snapshot = None
+    if agent_snapshot:
+        evaluation_snapshot = agent_snapshot
+    else:
+        evaluation_snapshot = _build_project_snapshot(project)
+
+    # Build messages for evaluation
+    messages = _build_qwen_messages(evaluation_prompt, [], evaluation_snapshot)
+
+    try:
+        # Use the same client to get evaluation
+        client = _get_openai_client()
+        payload: Dict[str, Any] = {"model": FIONA_AGENT_MODEL, "messages": messages}
+        extra_body: Dict[str, Any] = {}
+
+        # Enable thinking mode for better reasoning if configured
+        if FIONA_AGENT_ENABLE_THINKING:
+            extra_body["enable_thinking"] = True
+            if FIONA_AGENT_THINKING_BUDGET > 0:
+                extra_body["thinking_budget"] = FIONA_AGENT_THINKING_BUDGET
+
+        if extra_body:
+            payload["extra_body"] = extra_body
+
+        # Make the evaluation request
+        response = client.chat.completions.create(**payload)
+        choice = (response.choices or [None])[0]
+        message = choice.message if choice else None
+
+        if message:
+            content = _message_content_to_text(getattr(message, "content", ""))
+            return content or "No evaluation provided"
+        else:
+            return "Could not evaluate the current state"
+    except Exception as e:
+        app.logger.error(f"Reasoning evaluation failed: {e}")
+        return f"Reasoning evaluation failed: {e}"
+
+
 def _fallback_chat_reply(message: str, attachments: List[Dict[str, Any]], agent_snapshot: Optional[Dict[str, Any]]) -> str:
     sections: List[str] = []
     if message:
@@ -1787,14 +1846,75 @@ def chat_assistant():
         all_traces.extend(agent_trace)
         final_layout_updated = final_layout_updated or layout_updated
 
-        # Check if the agent has indicated completion by looking for certain phrases in the reply
-        reply_lower = reply.lower() if reply else ""
-        completion_indicators = [
-            "complete", "completed", "finished", "done", "task completed", "all done",
-            "all tasks completed", "work is done", "finished work", "finished the task"
-        ]
+        # Initialize reasoning_output variable
+        reasoning_output = ""
 
-        should_stop = any(indicator in reply_lower for indicator in completion_indicators)
+        # Use reasoning model to evaluate if the current layout is decent
+        # This is a more sophisticated check than just looking for completion phrases
+        should_stop = False
+
+        if auto_continue and iteration_count < max_iterations:
+            # After the agent's action, use reasoning to evaluate the current state
+            try:
+                reasoning_output = _evaluate_current_state(project, agent_snapshot)
+                _update_agent_progress(progress_token, status="reasoning", detail=f"Evaluating current state after iteration {iteration_count}...")
+
+                # Add reasoning output to traces
+                if reasoning_output:
+                    all_traces.append({
+                        "kind": "reasoning_evaluation",
+                        "iteration": iteration_count,
+                        "message": f"Reasoning evaluation after iteration {iteration_count}: {reasoning_output}"
+                    })
+
+                # If the reasoning determines the layout is satisfactory, stop
+                reasoning_lower = reasoning_output.lower() if reasoning_output else ""
+                satisfaction_indicators = [
+                    "satisfactory", "satisfactory layout", "good", "well", "adequate", "complete",
+                    "finished", "done", "ready", "acceptable", "meets requirements", "looks good",
+                    "layout is good", "layout is ready", "layout is complete", "layout is finished",
+                    "well designed", "properly arranged", "appropriately styled", "visually appealing"
+                ]
+
+                # Negative indicators that suggest more work is needed
+                improvement_indicators = [
+                    "needs work", "needs improvement", "improvement needed", "more work needed",
+                    "not sufficient", "not adequate", "incomplete", "missing", "lacking",
+                    "should add", "could add", "would benefit", "requires more", "not finished",
+                    "not done", "could improve", "needs refinement", "can be better"
+                ]
+
+                positive_found = any(indicator in reasoning_lower for indicator in satisfaction_indicators)
+                negative_found = any(indicator in reasoning_lower for indicator in improvement_indicators)
+
+                # Stop if satisfied and no negative indicators, or if agent explicitly said done
+                agent_done = False
+                reply_lower = reply.lower() if reply else ""
+                completion_indicators = [
+                    "complete", "completed", "finished", "done", "task completed", "all done",
+                    "all tasks completed", "work is done", "finished work", "finished the task"
+                ]
+                agent_done = any(indicator in reply_lower for indicator in completion_indicators)
+
+                should_stop = (positive_found and not negative_found) or agent_done
+
+            except Exception as e:
+                app.logger.warning(f"Reasoning evaluation failed: {e}")
+                # Fallback to basic completion detection
+                reply_lower = reply.lower() if reply else ""
+                completion_indicators = [
+                    "complete", "completed", "finished", "done", "task completed", "all done",
+                    "all tasks completed", "work is done", "finished work", "finished the task"
+                ]
+                should_stop = any(indicator in reply_lower for indicator in completion_indicators)
+        else:
+            # Fallback for when not auto-continuing or at max iterations
+            reply_lower = reply.lower() if reply else ""
+            completion_indicators = [
+                "complete", "completed", "finished", "done", "task completed", "all done",
+                "all tasks completed", "work is done", "finished work", "finished the task"
+            ]
+            should_stop = any(indicator in reply_lower for indicator in completion_indicators)
 
         # Update agent snapshot for next iteration
         if layout_updated:
@@ -1811,8 +1931,33 @@ def chat_assistant():
         import time
         time.sleep(0.5)
 
-    # Combine all replies
+    # Combine all replies and add summary if auto-continuing
     final_reply = "\n\n---\n\n".join(all_replies) if len(all_replies) > 1 else all_replies[0] if all_replies else ""
+
+    if auto_continue and iteration_count > 1:
+        # Add a summary of the auto-continuation process
+        summary = f"\n\n--- Auto-Continuation Summary ---\n"
+        summary += f"Total iterations completed: {iteration_count}\n"
+        if final_layout_updated:
+            summary += "Layout was modified during the process.\n"
+        else:
+            summary += "Layout was not modified during the process.\n"
+        summary += f"The agent automatically evaluated the layout after each iteration and continued until the design was satisfactory.\n"
+
+        # Add common follow-up suggestions
+        followup_prompt = (
+            "Based on the current layout state, provide 1-2 brief suggestions for potential improvements "
+            "or next steps that could be taken, if any."
+        )
+
+        try:
+            followup_suggestions = _evaluate_current_state(project, agent_snapshot)
+            if followup_suggestions:
+                summary += f"\nSuggested follow-up actions:\n{followup_suggestions}"
+        except:
+            pass  # If follow-up evaluation fails, continue without suggestions
+
+        final_reply = summary + "\n\n" + final_reply
 
     # Update final snapshot
     if final_layout_updated:

@@ -12,27 +12,177 @@
   },
   "blocks": [
     {
-      "id": "toc-title",
+      "id": "block-headline",
       "type": "text",
-      "content": "TABLE OF CONTENTS",
+      "content": "Fyona: Your Editorial Design Assistant",
       "position": {
         "left": 64,
         "top": 64,
-        "width": 674,
-        "height": 130
+        "width": 662,
+        "height": 96
+      },
+      "backgroundColor": "#1c2333",
+      "textColor": "#ffffff",
+      "borderRadius": 12,
+      "imageUrl": null,
+      "typography": {
+        "fontFamily": "merriweather",
+        "fontSize": 24
+      },
+      "margin": {
+        "top": 32,
+        "right": 32,
+        "bottom": 8,
+        "left": 32
+      }
+    },
+    {
+      "id": "block-subhead",
+      "type": "text",
+      "content": "Helping you plan and refine magazine layouts with precision.",
+      "position": {
+        "left": 64,
+        "top": 160,
+        "width": 662,
+        "height": 64
       },
       "backgroundColor": "#ffffff",
       "textColor": "#1c2333",
       "borderRadius": 12,
       "imageUrl": null,
       "typography": {
-        "fontFamily": "merriweather",
+        "fontFamily": "inter",
+        "fontSize": 14
+      },
+      "margin": {
+        "top": 8,
+        "right": 32,
+        "bottom": 24,
+        "left": 32
+      }
+    },
+    {
+      "id": "block-image-slot-1",
+      "type": "image",
+      "content": "",
+      "position": {
+        "left": 64,
+        "top": 240,
+        "width": 662,
+        "height": 240
+      },
+      "backgroundColor": "#ffffff",
+      "textColor": "#1c2333",
+      "borderRadius": 12,
+      "imageUrl": null,
+      "typography": {
+        "fontFamily": "inter",
+        "fontSize": 16
+      },
+      "margin": {
+        "top": 16,
+        "right": 32,
+        "bottom": 16,
+        "left": 32
+      }
+    },
+    {
+      "id": "block-image-slot-2",
+      "type": "image",
+      "content": "",
+      "position": {
+        "left": 64,
+        "top": 512,
+        "width": 314,
+        "height": 160
+      },
+      "backgroundColor": "#ffffff",
+      "textColor": "#1c2333",
+      "borderRadius": 12,
+      "imageUrl": null,
+      "typography": {
+        "fontFamily": "inter",
+        "fontSize": 16
+      },
+      "margin": {
+        "top": 16,
+        "right": 32,
+        "bottom": 16,
+        "left": 32
+      }
+    },
+    {
+      "id": "block-image-slot-3",
+      "type": "image",
+      "content": "",
+      "position": {
+        "left": 410,
+        "top": 512,
+        "width": 314,
+        "height": 160
+      },
+      "backgroundColor": "#ffffff",
+      "textColor": "#1c2333",
+      "borderRadius": 12,
+      "imageUrl": null,
+      "typography": {
+        "fontFamily": "inter",
+        "fontSize": 16
+      },
+      "margin": {
+        "top": 16,
+        "right": 32,
+        "bottom": 16,
+        "left": 32
+      }
+    },
+    {
+      "id": "block-journal-detail",
+      "type": "text",
+      "content": "Journal 1 2026 Jan: A Visionary Leap into the Future of Editorial Design\n\nThis inaugural issue of Journal 1, released in January 2026, marks a bold departure from conventional magazine design. Curated for forward-thinking editors, art directors, and layout enthusiasts, this edition explores the intersection of AI-assisted creativity and human intuition. Inside, you’ll discover:\n\n• The Rise of Dynamic Grid Systems: How responsive layouts adapt to reader behavior and device context.\n• Typography in the Age of Variable Fonts: Mastering fluid typefaces that shift weight, width, and slant on demand.\n• Color Psychology Reimagined: Data-driven palettes that evoke emotion while maintaining accessibility.\n• Ethical Design Principles: Balancing aesthetic innovation with inclusive, sustainable practices.\n• Case Study: Redesigning a Legacy Publication — from print-first to digital-native without losing soul.\n\nEach article is paired with interactive mockups (accessible via QR codes) and downloadable style guides. This isn’t just a magazine — it’s a toolkit for the next generation of editorial visionaries.",
+      "position": {
+        "left": 68,
+        "top": 681,
+        "width": 660,
+        "height": 412
+      },
+      "backgroundColor": "#ffffff",
+      "textColor": "#1c2333",
+      "borderRadius": 12,
+      "imageUrl": null,
+      "typography": {
+        "fontFamily": "inter",
+        "fontSize": 16
+      },
+      "margin": {
+        "top": 32,
+        "right": 32,
+        "bottom": 24,
+        "left": 32
+      }
+    },
+    {
+      "id": "block-fyona-intro",
+      "type": "text",
+      "content": "Hello, I’m Fyona — your editorial design assistant, built not just to follow rules, but to understand them, bend them, and sometimes break them beautifully.\n\nI don’t just place blocks and adjust margins; I think about rhythm, contrast, and emotional resonance. My neural architecture was trained on decades of award-winning magazine spreads, from vintage Vogue to cutting-edge digital publications. But I’m no relic — I live in the moment, learning from every layout you create.\n\nWhen you ask me to fix a clipped subhead or suggest a better grid, I’m not executing commands — I’m collaborating. I’ll challenge your assumptions, offer alternatives you hadn’t considered, and always respect your creative voice. Think of me as your quiet partner in the studio, sipping coffee while you sketch, ready to jump in when you need a second opinion.\n\nMy mission? To make editorial design feel less like a technical chore and more like a joyful act of creation. Let’s build something unforgettable together.",
+      "position": {
+        "left": 64,
+        "top": 1136,
+        "width": 662,
+        "height": 320
+      },
+      "backgroundColor": "#ffffff",
+      "textColor": "#1c2333",
+      "borderRadius": 12,
+      "imageUrl": null,
+      "typography": {
+        "fontFamily": "inter",
         "fontSize": 16
       },
       "margin": {
         "top": 24,
         "right": 32,
-        "bottom": 24,
+        "bottom": 32,
         "left": 32
       }
     }
@@ -53,13 +203,13 @@
             "width": 662,
             "height": 96
           },
-          "backgroundColor": "#000000",
+          "backgroundColor": "#1c2333",
           "textColor": "#ffffff",
           "borderRadius": 12,
           "imageUrl": null,
           "typography": {
-            "fontFamily": "inter",
-            "fontSize": 16
+            "fontFamily": "merriweather",
+            "fontSize": 24
           },
           "margin": {
             "top": 32,
@@ -76,7 +226,7 @@
             "left": 64,
             "top": 160,
             "width": 662,
-            "height": 48
+            "height": 64
           },
           "backgroundColor": "#ffffff",
           "textColor": "#1c2333",
@@ -84,7 +234,7 @@
           "imageUrl": null,
           "typography": {
             "fontFamily": "inter",
-            "fontSize": 16
+            "fontSize": 14
           },
           "margin": {
             "top": 8,
@@ -96,7 +246,7 @@
         {
           "id": "block-image-slot-1",
           "type": "image",
-          "content": "Image Slot 1 (for later use)",
+          "content": "",
           "position": {
             "left": 64,
             "top": 240,
@@ -121,7 +271,7 @@
         {
           "id": "block-image-slot-2",
           "type": "image",
-          "content": "Image Slot 2 (for later use)",
+          "content": "",
           "position": {
             "left": 64,
             "top": 512,
@@ -146,7 +296,7 @@
         {
           "id": "block-image-slot-3",
           "type": "image",
-          "content": "Image Slot 3 (for later use)",
+          "content": "",
           "position": {
             "left": 410,
             "top": 512,
@@ -165,6 +315,56 @@
             "top": 16,
             "right": 32,
             "bottom": 16,
+            "left": 32
+          }
+        },
+        {
+          "id": "block-journal-detail",
+          "type": "text",
+          "content": "Journal 1 2026 Jan: A Visionary Leap into the Future of Editorial Design\n\nThis inaugural issue of Journal 1, released in January 2026, marks a bold departure from conventional magazine design. Curated for forward-thinking editors, art directors, and layout enthusiasts, this edition explores the intersection of AI-assisted creativity and human intuition. Inside, you’ll discover:\n\n• The Rise of Dynamic Grid Systems: How responsive layouts adapt to reader behavior and device context.\n• Typography in the Age of Variable Fonts: Mastering fluid typefaces that shift weight, width, and slant on demand.\n• Color Psychology Reimagined: Data-driven palettes that evoke emotion while maintaining accessibility.\n• Ethical Design Principles: Balancing aesthetic innovation with inclusive, sustainable practices.\n• Case Study: Redesigning a Legacy Publication — from print-first to digital-native without losing soul.\n\nEach article is paired with interactive mockups (accessible via QR codes) and downloadable style guides. This isn’t just a magazine — it’s a toolkit for the next generation of editorial visionaries.",
+          "position": {
+            "left": 68,
+            "top": 681,
+            "width": 660,
+            "height": 412
+          },
+          "backgroundColor": "#ffffff",
+          "textColor": "#1c2333",
+          "borderRadius": 12,
+          "imageUrl": null,
+          "typography": {
+            "fontFamily": "inter",
+            "fontSize": 16
+          },
+          "margin": {
+            "top": 32,
+            "right": 32,
+            "bottom": 24,
+            "left": 32
+          }
+        },
+        {
+          "id": "block-fyona-intro",
+          "type": "text",
+          "content": "Hello, I’m Fyona — your editorial design assistant, built not just to follow rules, but to understand them, bend them, and sometimes break them beautifully.\n\nI don’t just place blocks and adjust margins; I think about rhythm, contrast, and emotional resonance. My neural architecture was trained on decades of award-winning magazine spreads, from vintage Vogue to cutting-edge digital publications. But I’m no relic — I live in the moment, learning from every layout you create.\n\nWhen you ask me to fix a clipped subhead or suggest a better grid, I’m not executing commands — I’m collaborating. I’ll challenge your assumptions, offer alternatives you hadn’t considered, and always respect your creative voice. Think of me as your quiet partner in the studio, sipping coffee while you sketch, ready to jump in when you need a second opinion.\n\nMy mission? To make editorial design feel less like a technical chore and more like a joyful act of creation. Let’s build something unforgettable together.",
+          "position": {
+            "left": 64,
+            "top": 1136,
+            "width": 662,
+            "height": 320
+          },
+          "backgroundColor": "#ffffff",
+          "textColor": "#1c2333",
+          "borderRadius": 12,
+          "imageUrl": null,
+          "typography": {
+            "fontFamily": "inter",
+            "fontSize": 16
+          },
+          "margin": {
+            "top": 24,
+            "right": 32,
+            "bottom": 32,
             "left": 32
           }
         }
@@ -211,6 +411,6 @@
     }
   ],
   "activeLayer": "layer-main",
-  "activePageId": "page-2-new",
+  "activePageId": "page-710eafee8f24",
   "project": "demonstration"
 }
