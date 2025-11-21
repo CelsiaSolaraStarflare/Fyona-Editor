@@ -1342,6 +1342,11 @@ input:focus {
     box-shadow: 0 14px 24px rgba(68, 134, 255, 0.18);
 }
 
+.spotlight-step--error {
+    border-color: rgba(248, 113, 113, 0.8);
+    box-shadow: 0 14px 28px rgba(248, 113, 113, 0.22);
+}
+
 .spotlight-results .chat-log {
     flex: 1;
     overflow-y: auto;

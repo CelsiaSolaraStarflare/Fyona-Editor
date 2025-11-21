@@ -2,8 +2,10 @@ from __future__ import annotations
 
 import re
 import shlex
+import json
 from copy import deepcopy
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional, Sequence, Tuple
 
 
@@ -19,6 +21,20 @@ class TerminalResult:
 
 
 CommandHandler = Callable[[Sequence[str]], TerminalResult]
+
+DEFAULT_FONT = "inter"
+DEFAULT_FONT_SIZE = 16
+DEFAULT_TEXT_COLOR = "#1c2333"
+DEFAULT_BG_COLOR = "#ffffff"
+DEFAULT_RADIUS = 12
+DEFAULT_TEXT_MARGIN = {"top": 16, "right": 16, "bottom": 16, "left": 16}
+DEFAULT_IMAGE_MARGIN = {"top": 0, "right": 0, "bottom": 0, "left": 0}
+CANVAS_PRESETS: Dict[str, Tuple[int, int]] = {
+    "a5": (559, 794),
+    "a4": (794, 1123),
+    "a3": (1123, 1587),
+    "letter": (816, 1056),
+}
 
 
 class TerminalProcessor:

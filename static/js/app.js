@@ -671,6 +671,7 @@ document.addEventListener('DOMContentLoaded', () => {
             deselectBlock();
             updateCanvasSizeLabel();
             updateChatProjectStatus();
+            renderDesignIntent();
         } catch (error) {
             console.error(error);
             showToast('Unable to load layout', true);
@@ -2166,7 +2167,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!state.chat.messages.length) {
             pushChatMessage({
                 role: 'assistant',
-                content: 'Hi! I can answer layout questions, attach canvas snapshots, or read your files when Agent Mode is on.',
+                content: 'Summon the spotlight to plan your layout. I will show every agent step before placing any content.',
             });
         }
         initAgentModeControl();
@@ -2174,8 +2175,21 @@ document.addEventListener('DOMContentLoaded', () => {
         if (els.chatClose) {
             els.chatClose.addEventListener('click', () => toggleChatPanel(false));
         }
+        if (els.chatBackdrop) {
+            els.chatBackdrop.addEventListener('click', () => toggleChatPanel(false));
+        }
         document.addEventListener('keydown', (event) => {
-            if (event.key === 'Escape' && state.chat.open) {
+            const key = typeof event.key === 'string' ? event.key.toLowerCase() : '';
+            if ((event.metaKey || event.ctrlKey) && key === 'k') {
+                event.preventDefault();
+                toggleChatPanel(true);
+                if (els.chatInput) {
+                    els.chatInput.focus();
+                    els.chatInput.select();
+                }
+                return;
+            }
+            if (key === 'escape' && state.chat.open) {
                 toggleChatPanel(false);
             }
         });
@@ -2197,9 +2211,9 @@ document.addEventListener('DOMContentLoaded', () => {
         if (els.chatAgentOptionsToggle) {
             els.chatAgentOptionsToggle.addEventListener('click', () => toggleAgentOptionsPanel());
         }
-        initChatResizeHandle();
         setChatStatus('Assistant ready');
         updateAgentToggle();
+        renderSpotlightProgress();
     }
 
     function toggleChatPanel(forceOpen) {
@@ -2209,10 +2223,20 @@ document.addEventListener('DOMContentLoaded', () => {
         els.chatPanel.classList.toggle('chat-panel--open', open);
         els.chatPanel.setAttribute('aria-hidden', open ? 'false' : 'true');
         els.chatLauncher.setAttribute('aria-expanded', open ? 'true' : 'false');
+        if (els.chatBackdrop) {
+            els.chatBackdrop.classList.toggle('is-visible', open);
+            els.chatBackdrop.setAttribute('aria-hidden', open ? 'false' : 'true');
+        }
+        document.body.classList.toggle('is-chat-open', open);
         if (open) {
             applySavedChatPanelSize();
             renderChatMessages();
+            renderSpotlightProgress();
+            renderDesignIntent();
             scrollChatLogToBottom();
+            if (els.chatInput) {
+                els.chatInput.focus();
+            }
         }
     }
 
@@ -2802,6 +2826,7 @@ document.addEventListener('DOMContentLoaded', () => {
     function startAgentProgressWatcher(progressId) {
         if (!progressId) return;
         stopAgentProgressWatcher();
+        toggleChatPanel(true);
         const message = pushChatMessage({
             role: 'system',
             content: 'Agent preparing tasks…',
@@ -2813,7 +2838,9 @@ document.addEventListener('DOMContentLoaded', () => {
             messageId: message.id,
             lastStatus: message.content,
             historyLength: 0,
+            events: [],
         };
+        renderSpotlightProgress();
         pollAgentProgress();
         state.chat.progress.timer = window.setInterval(() => {
             pollAgentProgress();
@@ -2828,13 +2855,17 @@ document.addEventListener('DOMContentLoaded', () => {
         if (finalText && watcher.messageId) {
             updateAgentProgressMessage(finalText, true);
         }
+        const retainedEvents = Array.isArray(watcher.events) ? watcher.events.slice() : [];
+        const retainedStatus = watcher.lastStatus;
         state.chat.progress = {
             id: null,
             timer: null,
             messageId: null,
-            lastStatus: null,
+            lastStatus: retainedStatus,
             historyLength: 0,
+            events: retainedEvents,
         };
+        renderSpotlightProgress();
     }
 
     async function finalizeAgentProgressWatcher(progressId) {
@@ -2881,11 +2912,13 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!message) return;
         const text = typeof progress === 'string' ? progress : formatProgressLabel(progress);
         message.content = text;
-        renderChatMessages();
         watcher.lastStatus = text;
-        if (typeof progress === 'object' && progress.events) {
+        if (typeof progress === 'object' && Array.isArray(progress.events)) {
             watcher.historyLength = progress.events.length;
+            watcher.events = progress.events.slice();
         }
+        renderChatMessages();
+        renderSpotlightProgress(progress);
         if (finalize) {
             state.chat.progress.messageId = null;
         }
@@ -2908,6 +2941,92 @@ document.addEventListener('DOMContentLoaded', () => {
             lines.push(`Agent progress — ${progress.detail || progress.status || 'Working…'}`);
         }
         return lines.join('\n');
+    }
+
+    function renderSpotlightProgress(progress) {
+        if (!els.chatProgress) return;
+        const container = els.chatProgress;
+        const events = Array.isArray(progress?.events)
+            ? progress.events
+            : Array.isArray(state.chat.progress.events)
+                ? state.chat.progress.events
+                : [];
+        container.innerHTML = '';
+        if (!events.length) {
+            const placeholder = document.createElement('li');
+            placeholder.className = 'spotlight-step';
+            const index = document.createElement('span');
+            index.className = 'spotlight-step__index';
+            index.textContent = '—';
+            const body = document.createElement('div');
+            body.className = 'spotlight-step__body';
+            const title = document.createElement('p');
+            title.className = 'spotlight-step__title';
+            title.textContent = state.chat.progress.lastStatus || 'Awaiting a prompt.';
+            const meta = document.createElement('p');
+            meta.className = 'spotlight-step__meta';
+            meta.textContent = 'Ask Fyona for a layout and watch each step appear here.';
+            body.appendChild(title);
+            body.appendChild(meta);
+            placeholder.appendChild(index);
+            placeholder.appendChild(body);
+            container.appendChild(placeholder);
+            return;
+        }
+
+        const hasError = !!(progress && typeof progress === 'object' && progress.error);
+        const isDone = !!(progress && typeof progress === 'object' && progress.done);
+        events.forEach((entry, idx) => {
+            const event = entry || {};
+            const item = document.createElement('li');
+            item.className = 'spotlight-step';
+            if (!isDone && !hasError && idx === events.length - 1) {
+                item.classList.add('spotlight-step--active');
+            }
+            if (hasError && idx === events.length - 1) {
+                item.classList.add('spotlight-step--error');
+            }
+            const index = document.createElement('span');
+            index.className = 'spotlight-step__index';
+            index.textContent = String(idx + 1).padStart(2, '0');
+
+            const body = document.createElement('div');
+            body.className = 'spotlight-step__body';
+            const title = document.createElement('p');
+            title.className = 'spotlight-step__title';
+            const detail =
+                typeof event === 'string'
+                    ? event
+                    : event.detail || event.status || event.title || 'Working…';
+            title.textContent = detail;
+            const meta = document.createElement('p');
+            meta.className = 'spotlight-step__meta';
+            const metaParts = [];
+            if (typeof event === 'object') {
+                if (event.status && event.status !== detail) {
+                    metaParts.push(event.status);
+                }
+                if (event.kind) {
+                    metaParts.push(String(event.kind));
+                }
+                if (event.message) {
+                    metaParts.push(String(event.message));
+                }
+            }
+            if (hasError && idx === events.length - 1 && progress?.error) {
+                metaParts.push(String(progress.error));
+            }
+            if (isDone && idx === events.length - 1) {
+                metaParts.push('Complete');
+            }
+            meta.textContent = metaParts.filter(Boolean).join(' · ') || 'Agent step';
+            body.appendChild(title);
+            body.appendChild(meta);
+
+            item.appendChild(index);
+            item.appendChild(body);
+            container.appendChild(item);
+        });
     }
 
     function renderMessageAttachment(attachment) {
@@ -3390,6 +3509,51 @@ document.addEventListener('DOMContentLoaded', () => {
     function updateChatProjectStatus() {
         if (state.chat.sending) return;
         setChatStatus(`Ready · Project “${state.project}”`);
+    }
+
+    function renderDesignIntent() {
+        if (!els.chatIntentCopy) return;
+        const layout = state.layout;
+        if (!layout) {
+            els.chatIntentCopy.textContent = 'Fyona will sketch a plan once a project is loaded.';
+            if (els.chatIntentPalette) {
+                els.chatIntentPalette.innerHTML = '';
+            }
+            return;
+        }
+        const pieces = [];
+        if (layout.format) {
+            pieces.push(`${layout.format} ${layout.orientation || ''}`.trim());
+        }
+        if (layout.columns) {
+            pieces.push(`${layout.columns}-column grid`);
+        }
+        if (layout.baseline) {
+            pieces.push(`${layout.baseline}px baseline`);
+        }
+        if (layout.gutter) {
+            pieces.push(`${layout.gutter}px gutters`);
+        }
+        const themeName = layout.theme?.name;
+        const descriptor = themeName ? `“${themeName}”` : 'this spread';
+        const layoutLine = pieces.filter(Boolean).join(' • ');
+        const copyParts = [
+            `Framing ${descriptor} with ${layoutLine || 'a grid-first pass'}.`,
+            'Fyona will describe the visual intent before placing content.',
+        ].filter(Boolean);
+        els.chatIntentCopy.textContent = copyParts.join(' ');
+        if (els.chatIntentPalette) {
+            els.chatIntentPalette.innerHTML = '';
+            const palette = layout.theme?.palette || {};
+            Object.entries(palette).forEach(([key, value]) => {
+                if (typeof value !== 'string' || !value.trim()) return;
+                const swatch = document.createElement('span');
+                swatch.className = 'spotlight-intent__swatch';
+                swatch.style.background = value;
+                swatch.title = `${key}: ${value}`;
+                els.chatIntentPalette.appendChild(swatch);
+            });
+        }
     }
 
     function scrollChatLogToBottom() {
