@@ -56,11 +56,11 @@ class TerminalProcessor:
         except ValueError as exc:  # pragma: no cover - user input validation
             raise TerminalCommandError(str(exc)) from exc
         if not tokens:
-            raise TerminalCommandError("Type a command such as `help` or `echo 1`.")
+            raise TerminalCommandError("Type a command such as `help` or `echo 1`. TIP: Run `help` to see all available commands!")
         verb = tokens[0].lower()
         handler: Optional[CommandHandler] = getattr(self, f"_cmd_{verb}", None)
         if handler is None:
-            raise TerminalCommandError(f"Unknown command “{verb}”. Type `help` to see options.")
+            raise TerminalCommandError(f"Unknown command “{verb}”. Type `help` to see options. TIP: Run `help` to see all available commands!")
         return handler(tokens[1:])
 
     # ------------------------------------------------------------------ commands
@@ -76,13 +76,34 @@ class TerminalProcessor:
             "  resize <block> --size WxH [--page N]",
             "  duplicate <block> [--page N] [--to-page M] [--offset (x,y)]",
             "  delete <block> [--page N]           Remove a block from a page.",
+            "  remove <block> [--page N]           Remove a block from a page (alternative to delete).",
             "  newpage \"Name\" [--after N] [--from N]",
             "  renamepage <page> \"Name\"        Rename a page.",
             "  deletepage <page>                   Remove a page from the layout.",
             "  activate <page>                     Switch the active canvas page.",
             "  grid [--columns N --gutter N ...]   Inspect or update grid settings.",
             "  add --text \"Copy\" --font Inter --position (x,y) [--page N] [--size WxH]",
+            "    [--style '{\"fontFamily\": \"Inter\", \"fontSize\": 16, ...}'] [--fontsize N] [--bold true|false] [--italic true|false] [--underline true|false]",
+            "    [--strikethrough true|false] [--textcolor \"#RRGGBB\"] [--bg \"#RRGGBB\"]",
+            "    [--align left|center|right|justify] [--lineheight N] [--radius N] [--border N]",
+            "    [--bordercolor \"#RRGGBB\"] [--shadow \"blur,offsetX,offsetY,#color\"] [--opacity 0.0-1.0]",
+            "    [--padding \"T,R,B,L\"] [--margin \"T,R,B,L\"] [--zindex N] [--rotate N]",
             "  add --image \"Label\" --position (x,y) [--page N] [--size WxH]",
+            "    [--style '{\"fontSize\": 16, \"color\": \"#rrggbb\", ...}'] [--bg \"#RRGGBB\"] [--radius N] [--border N] [--bordercolor \"#RRGGBB\"]",
+            "    [--shadow \"blur,offsetX,offsetY,#color\"] [--opacity 0.0-1.0] [--padding \"T,R,B,L\"]",
+            "    [--margin \"T,R,B,L\"] [--zindex N] [--rotate N]",
+            "  edit <block> [--bold true|false] [--italic true|false] [--underline true|false]",
+            "    [--strikethrough true|false] [--fontsize N] [--fontfamily \"FontName\"]",
+            "    [--textcolor \"#RRGGBB\"] [--bg \"#RRGGBB\"] [--align left|center|right|justify]",
+            "    [--lineheight N] [--width N] [--height N] [--left N] [--top N] [--radius N]",
+            "    [--border N] [--bordercolor \"#RRGGBB\"] [--shadow \"blur,offsetX,offsetY,#color\"]",
+            "    [--opacity 0.0-1.0] [--padding \"T,R,B,L\"] [--margin \"T,R,B,L\"] [--zindex N]",
+            "    [--rotate N] [--page N]",
+            "  content <block> --text \"New content\" [--page N]",
+            "  append <block> --text \"Additional content\" [--page N]",
+            "  prepend <block> --text \"Prepended content\" [--page N]",
+            "",
+            "TIP: Run 'help' at the start of your session to see all available commands and options!"
         ]
         return TerminalResult(output="\n".join(lines))
 
@@ -348,6 +369,35 @@ class TerminalProcessor:
         block_id = block.get("id") or selector
         return TerminalResult(
             output=f"Deleted block {block_id} from {label}.",
+            layout=self.layout,
+            refresh_layout=True,
+        )
+
+    def _cmd_remove(self, args: Sequence[str]) -> TerminalResult:
+        if not args:
+            raise TerminalCommandError("Usage: remove <block> [--page N]")
+        selector = args[0]
+        page_number: Optional[int] = None
+        i = 1
+        while i < len(args):
+            token = args[i]
+            if token == "--page":
+                i += 1
+                if i >= len(args):
+                    raise TerminalCommandError("Provide a page number after --page.")
+                page_number = self._coerce_positive_int(args[i], "page number")
+            else:
+                raise TerminalCommandError(f"Unrecognized flag “{token}”.")
+            i += 1
+        page = self._get_target_page(page_number)
+        blocks = page.get("blocks") or []
+        block, index = self._find_block(page, selector)
+        blocks.pop(index)
+        self._sync_active_blocks(page)
+        label = self._page_label(page, self._page_index(page))
+        block_id = block.get("id") or selector
+        return TerminalResult(
+            output=f"Removed block {block_id} from {label}.",
             layout=self.layout,
             refresh_layout=True,
         )
@@ -620,6 +670,96 @@ class TerminalProcessor:
         message = self._describe_block_addition(block, page)
         return TerminalResult(output=message, layout=self.layout, refresh_layout=True)
 
+    def _cmd_edit(self, args: Sequence[str]) -> TerminalResult:
+        if not args:
+            raise TerminalCommandError("Usage: edit <block> [--property value]...")
+
+        selector = args[0]
+        options = self._parse_edit_arguments(args[1:])
+        page = self._get_target_page(options.get("page"))
+        block, _ = self._find_block(page, selector)
+
+        # Apply all the edits
+        self._apply_block_edits(block, options)
+
+        self._sync_active_blocks(page)
+        label = self._page_label(page, self._page_index(page))
+        block_id = block.get("id") or selector
+        return TerminalResult(
+            output=f"Edited block {block_id} on {label}.",
+            layout=self.layout,
+            refresh_layout=True,
+        )
+
+    def _cmd_content(self, args: Sequence[str]) -> TerminalResult:
+        if len(args) < 2:
+            raise TerminalCommandError("Usage: content <block> --text \"New content\"")
+
+        selector = args[0]
+        options = self._parse_content_arguments(args[1:])
+        page = self._get_target_page(options.get("page"))
+        block, _ = self._find_block(page, selector)
+
+        if block.get("type") != "text":
+            raise TerminalCommandError("Content can only be updated for text blocks.")
+
+        block["content"] = options["text"]
+
+        self._sync_active_blocks(page)
+        label = self._page_label(page, self._page_index(page))
+        block_id = block.get("id") or selector
+        return TerminalResult(
+            output=f"Updated content for block {block_id} on {label}.",
+            layout=self.layout,
+            refresh_layout=True,
+        )
+
+    def _cmd_append(self, args: Sequence[str]) -> TerminalResult:
+        if len(args) < 2:
+            raise TerminalCommandError("Usage: append <block> --text \"Additional content\"")
+
+        selector = args[0]
+        options = self._parse_content_arguments(args[1:])
+        page = self._get_target_page(options.get("page"))
+        block, _ = self._find_block(page, selector)
+
+        if block.get("type") != "text":
+            raise TerminalCommandError("Content can only be appended to text blocks.")
+
+        block["content"] = f"{block.get('content', '')}{options['text']}"
+
+        self._sync_active_blocks(page)
+        label = self._page_label(page, self._page_index(page))
+        block_id = block.get("id") or selector
+        return TerminalResult(
+            output=f"Appended content to block {block_id} on {label}.",
+            layout=self.layout,
+            refresh_layout=True,
+        )
+
+    def _cmd_prepend(self, args: Sequence[str]) -> TerminalResult:
+        if len(args) < 2:
+            raise TerminalCommandError("Usage: prepend <block> --text \"Prepended content\"")
+
+        selector = args[0]
+        options = self._parse_content_arguments(args[1:])
+        page = self._get_target_page(options.get("page"))
+        block, _ = self._find_block(page, selector)
+
+        if block.get("type") != "text":
+            raise TerminalCommandError("Content can only be prepended to text blocks.")
+
+        block["content"] = f"{options['text']}{block.get('content', '')}"
+
+        self._sync_active_blocks(page)
+        label = self._page_label(page, self._page_index(page))
+        block_id = block.get("id") or selector
+        return TerminalResult(
+            output=f"Prepended content to block {block_id} on {label}.",
+            layout=self.layout,
+            refresh_layout=True,
+        )
+
     # ------------------------------------------------------------------ helpers
     def _sorted_pages(self) -> List[Dict[str, Any]]:
         pages = self.layout.setdefault("pages", [])
@@ -754,15 +894,61 @@ class TerminalProcessor:
                 "height": int(height),
             },
         }
+
+        # Text formatting options
+        typography = {}
+        if options.get("font"):
+            typography["fontFamily"] = options["font"]
+        if options.get("fontsize"):
+            typography["fontSize"] = options["fontsize"]
+        if options.get("bold") is not None:
+            typography["bold"] = options["bold"]
+        if options.get("italic") is not None:
+            typography["italic"] = options["italic"]
+        if options.get("underline") is not None:
+            typography["underline"] = options["underline"]
+        if options.get("strikethrough") is not None:
+            typography["strikethrough"] = options["strikethrough"]
+        if options.get("textcolor"):
+            typography["color"] = options["textcolor"]
+        if options.get("align"):
+            typography["textAlign"] = options["align"]
+        if options.get("lineheight"):
+            typography["lineHeight"] = options["lineheight"]
+
+        if typography:
+            base_block["typography"] = typography
+
         if options["kind"] == "text":
             base_block["content"] = options["text"]
-            if options.get("font"):
-                base_block["typography"] = {"fontFamily": options["font"]}
         else:
             label = options.get("image_label") or "Image placeholder"
             base_block["content"] = label
             if options.get("image_label"):
                 base_block["imageUrl"] = options["image_label"]
+
+        # Visual styling options
+        if options.get("bg"):
+            base_block["backgroundColor"] = options["bg"]
+        if options.get("radius") is not None:
+            base_block["borderRadius"] = options["radius"]
+        if options.get("border") is not None:
+            base_block["borderWidth"] = options["border"]
+        if options.get("bordercolor"):
+            base_block["borderColor"] = options["bordercolor"]
+        if options.get("shadow"):
+            base_block["shadow"] = options["shadow"]
+        if options.get("opacity") is not None:
+            base_block["opacity"] = options["opacity"]
+        if options.get("padding"):
+            base_block["padding"] = options["padding"]
+        if options.get("margin"):
+            base_block["margin"] = options["margin"]
+        if options.get("zindex") is not None:
+            base_block["zIndex"] = options["zindex"]
+        if options.get("rotate") is not None:
+            base_block["rotate"] = options["rotate"]
+
         return base_block
 
     def _parse_add_arguments(self, args: Sequence[str]) -> Dict[str, Any]:
@@ -773,9 +959,27 @@ class TerminalProcessor:
             "text": None,
             "image_label": None,
             "font": None,
+            "fontsize": None,
             "position": None,
             "size": None,
             "page": None,
+            "bold": None,
+            "italic": None,
+            "underline": None,
+            "strikethrough": None,
+            "textcolor": None,
+            "bg": None,
+            "align": None,
+            "lineheight": None,
+            "radius": None,
+            "border": None,
+            "bordercolor": None,
+            "shadow": None,
+            "opacity": None,
+            "padding": None,
+            "margin": None,
+            "zindex": None,
+            "rotate": None,
         }
         i = 0
         while i < len(args):
@@ -797,6 +1001,14 @@ class TerminalProcessor:
                 if i >= len(args):
                     raise TerminalCommandError("Provide a font name after --font.")
                 options["font"] = args[i]
+            elif token == "--fontsize":
+                i += 1
+                if i >= len(args):
+                    raise TerminalCommandError("Provide a font size after --fontsize.")
+                try:
+                    options["fontsize"] = int(args[i])
+                except ValueError:
+                    raise TerminalCommandError("--fontsize must be a number.")
             elif token == "--position":
                 i += 1
                 if i >= len(args):
@@ -812,6 +1024,178 @@ class TerminalProcessor:
                 if i >= len(args):
                     raise TerminalCommandError("Provide width x height after --size.")
                 options["size"] = self._parse_size(args[i])
+            elif token == "--style":
+                i += 1
+                if i >= len(args):
+                    raise TerminalCommandError("Provide a style object after --style.")
+                try:
+                    # Try to parse as JSON string first
+                    import json
+                    style_obj = json.loads(args[i])
+                    if not isinstance(style_obj, dict):
+                        raise TerminalCommandError("--style must be a JSON object with style properties.")
+
+                    # Map style properties to individual options
+                    if "fontFamily" in style_obj:
+                        options["font"] = str(style_obj["fontFamily"])
+                    if "fontSize" in style_obj:
+                        options["fontsize"] = int(style_obj["fontSize"])
+                    if "fontWeight" in style_obj:
+                        options["bold"] = style_obj["fontWeight"] in ("bold", "bolder", "700", "800", "900")
+                    if "textAlign" in style_obj:
+                        options["align"] = str(style_obj["textAlign"])
+                    if "color" in style_obj:
+                        options["textcolor"] = str(style_obj["color"])
+                    if "backgroundColor" in style_obj:
+                        options["bg"] = str(style_obj["backgroundColor"])
+                    if "borderRadius" in style_obj:
+                        options["radius"] = int(style_obj["borderRadius"])
+                    if "opacity" in style_obj:
+                        options["opacity"] = float(style_obj["opacity"])
+                    if "lineHeight" in style_obj:
+                        options["lineheight"] = float(style_obj["lineHeight"])
+                except json.JSONDecodeError:
+                    # If JSON parsing fails, try to parse as CSS-like string
+                    style_str = args[i]
+                    # Handle CSS-like string: "fontFamily: Arial; fontSize: 16"
+                    if ":" in style_str and ";" in style_str:
+                        # This is a CSS-like string, not supported for now
+                        raise TerminalCommandError("--style must be a valid JSON object like '{\"fontFamily\": \"Arial\", \"fontSize\": 16}'")
+                    else:
+                        raise TerminalCommandError("--style must be a valid JSON object like '{\"fontFamily\": \"Arial\", \"fontSize\": 16}'")
+            elif token == "--bold":
+                i += 1
+                if i >= len(args):
+                    raise TerminalCommandError("Provide true or false after --bold.")
+                value = args[i].lower()
+                if value in ("true", "1", "on"):
+                    options["bold"] = True
+                elif value in ("false", "0", "off"):
+                    options["bold"] = False
+                else:
+                    raise TerminalCommandError("--bold must be true/false.")
+            elif token == "--italic":
+                i += 1
+                if i >= len(args):
+                    raise TerminalCommandError("Provide true or false after --italic.")
+                value = args[i].lower()
+                if value in ("true", "1", "on"):
+                    options["italic"] = True
+                elif value in ("false", "0", "off"):
+                    options["italic"] = False
+                else:
+                    raise TerminalCommandError("--italic must be true/false.")
+            elif token == "--underline":
+                i += 1
+                if i >= len(args):
+                    raise TerminalCommandError("Provide true or false after --underline.")
+                value = args[i].lower()
+                if value in ("true", "1", "on"):
+                    options["underline"] = True
+                elif value in ("false", "0", "off"):
+                    options["underline"] = False
+                else:
+                    raise TerminalCommandError("--underline must be true/false.")
+            elif token == "--strikethrough":
+                i += 1
+                if i >= len(args):
+                    raise TerminalCommandError("Provide true or false after --strikethrough.")
+                value = args[i].lower()
+                if value in ("true", "1", "on"):
+                    options["strikethrough"] = True
+                elif value in ("false", "0", "off"):
+                    options["strikethrough"] = False
+                else:
+                    raise TerminalCommandError("--strikethrough must be true/false.")
+            elif token == "--textcolor":
+                i += 1
+                if i >= len(args):
+                    raise TerminalCommandError("Provide a color value after --textcolor.")
+                options["textcolor"] = args[i]
+            elif token == "--bg":
+                i += 1
+                if i >= len(args):
+                    raise TerminalCommandError("Provide a color value after --bg.")
+                options["bg"] = args[i]
+            elif token == "--align":
+                i += 1
+                if i >= len(args):
+                    raise TerminalCommandError("Provide an alignment value after --align.")
+                align_value = args[i].lower()
+                if align_value not in ("left", "center", "right", "justify"):
+                    raise TerminalCommandError("--align must be left/center/right/justify.")
+                options["align"] = align_value
+            elif token == "--lineheight":
+                i += 1
+                if i >= len(args):
+                    raise TerminalCommandError("Provide a line height value after --lineheight.")
+                try:
+                    options["lineheight"] = float(args[i])
+                except ValueError:
+                    raise TerminalCommandError("--lineheight must be a number.")
+            elif token == "--radius":
+                i += 1
+                if i >= len(args):
+                    raise TerminalCommandError("Provide a radius value after --radius.")
+                try:
+                    options["radius"] = int(args[i])
+                except ValueError:
+                    raise TerminalCommandError("--radius must be a number.")
+            elif token == "--border":
+                i += 1
+                if i >= len(args):
+                    raise TerminalCommandError("Provide a border width value after --border.")
+                try:
+                    options["border"] = int(args[i])
+                except ValueError:
+                    raise TerminalCommandError("--border must be a number.")
+            elif token == "--bordercolor":
+                i += 1
+                if i >= len(args):
+                    raise TerminalCommandError("Provide a border color value after --bordercolor.")
+                options["bordercolor"] = args[i]
+            elif token == "--shadow":
+                i += 1
+                if i >= len(args):
+                    raise TerminalCommandError("Provide shadow values after --shadow.")
+                options["shadow"] = args[i]
+            elif token == "--opacity":
+                i += 1
+                if i >= len(args):
+                    raise TerminalCommandError("Provide an opacity value after --opacity.")
+                try:
+                    opacity = float(args[i])
+                    if not 0.0 <= opacity <= 1.0:
+                        raise TerminalCommandError("--opacity must be between 0.0 and 1.0.")
+                    options["opacity"] = opacity
+                except ValueError:
+                    raise TerminalCommandError("--opacity must be a number between 0.0 and 1.0.")
+            elif token == "--padding":
+                i += 1
+                if i >= len(args):
+                    raise TerminalCommandError("Provide padding values after --padding.")
+                options["padding"] = args[i]
+            elif token == "--margin":
+                i += 1
+                if i >= len(args):
+                    raise TerminalCommandError("Provide margin values after --margin.")
+                options["margin"] = args[i]
+            elif token == "--zindex":
+                i += 1
+                if i >= len(args):
+                    raise TerminalCommandError("Provide a z-index value after --zindex.")
+                try:
+                    options["zindex"] = int(args[i])
+                except ValueError:
+                    raise TerminalCommandError("--zindex must be a number.")
+            elif token == "--rotate":
+                i += 1
+                if i >= len(args):
+                    raise TerminalCommandError("Provide a rotation value after --rotate.")
+                try:
+                    options["rotate"] = int(args[i])
+                except ValueError:
+                    raise TerminalCommandError("--rotate must be a number.")
             else:
                 raise TerminalCommandError(f"Unrecognized flag “{token}”.")
             i += 1
@@ -876,3 +1260,308 @@ class TerminalProcessor:
         name = page.get("name") or f"Page {page_index}"
         pos = block.get("position") or {}
         return f"Added {block.get('type')} block to {name} at ({pos.get('left')}, {pos.get('top')})."
+
+    def _parse_edit_arguments(self, args: Sequence[str]) -> Dict[str, Any]:
+        """Parse arguments for the edit command."""
+        options: Dict[str, Any] = {
+            "page": None,
+            "bold": None,
+            "italic": None,
+            "underline": None,
+            "strikethrough": None,
+            "fontsize": None,
+            "fontfamily": None,
+            "textcolor": None,
+            "bg": None,
+            "align": None,
+            "lineheight": None,
+            "width": None,
+            "height": None,
+            "left": None,
+            "top": None,
+            "radius": None,
+            "border": None,
+            "bordercolor": None,
+            "shadow": None,
+            "opacity": None,
+            "padding": None,
+            "margin": None,
+            "zindex": None,
+            "rotate": None,
+        }
+
+        i = 0
+        while i < len(args):
+            token = args[i]
+            if token == "--page":
+                i += 1
+                if i >= len(args):
+                    raise TerminalCommandError("Provide a page number after --page.")
+                options["page"] = self._coerce_positive_int(args[i], "page number")
+            elif token == "--bold":
+                i += 1
+                if i >= len(args):
+                    raise TerminalCommandError("Provide true or false after --bold.")
+                value = args[i].lower()
+                if value in ("true", "1", "on"):
+                    options["bold"] = True
+                elif value in ("false", "0", "off"):
+                    options["bold"] = False
+                else:
+                    raise TerminalCommandError("--bold must be true/false.")
+            elif token == "--italic":
+                i += 1
+                if i >= len(args):
+                    raise TerminalCommandError("Provide true or false after --italic.")
+                value = args[i].lower()
+                if value in ("true", "1", "on"):
+                    options["italic"] = True
+                elif value in ("false", "0", "off"):
+                    options["italic"] = False
+                else:
+                    raise TerminalCommandError("--italic must be true/false.")
+            elif token == "--underline":
+                i += 1
+                if i >= len(args):
+                    raise TerminalCommandError("Provide true or false after --underline.")
+                value = args[i].lower()
+                if value in ("true", "1", "on"):
+                    options["underline"] = True
+                elif value in ("false", "0", "off"):
+                    options["underline"] = False
+                else:
+                    raise TerminalCommandError("--underline must be true/false.")
+            elif token == "--strikethrough":
+                i += 1
+                if i >= len(args):
+                    raise TerminalCommandError("Provide true or false after --strikethrough.")
+                value = args[i].lower()
+                if value in ("true", "1", "on"):
+                    options["strikethrough"] = True
+                elif value in ("false", "0", "off"):
+                    options["strikethrough"] = False
+                else:
+                    raise TerminalCommandError("--strikethrough must be true/false.")
+            elif token == "--fontsize":
+                i += 1
+                if i >= len(args):
+                    raise TerminalCommandError("Provide a font size after --fontsize.")
+                try:
+                    options["fontsize"] = int(args[i])
+                except ValueError:
+                    raise TerminalCommandError("--fontsize must be a number.")
+            elif token == "--fontfamily":
+                i += 1
+                if i >= len(args):
+                    raise TerminalCommandError("Provide a font family after --fontfamily.")
+                options["fontfamily"] = args[i]
+            elif token == "--textcolor":
+                i += 1
+                if i >= len(args):
+                    raise TerminalCommandError("Provide a color value after --textcolor.")
+                options["textcolor"] = args[i]
+            elif token == "--bg":
+                i += 1
+                if i >= len(args):
+                    raise TerminalCommandError("Provide a color value after --bg.")
+                options["bg"] = args[i]
+            elif token == "--align":
+                i += 1
+                if i >= len(args):
+                    raise TerminalCommandError("Provide an alignment value after --align.")
+                align_value = args[i].lower()
+                if align_value not in ("left", "center", "right", "justify"):
+                    raise TerminalCommandError("--align must be left/center/right/justify.")
+                options["align"] = align_value
+            elif token == "--lineheight":
+                i += 1
+                if i >= len(args):
+                    raise TerminalCommandError("Provide a line height value after --lineheight.")
+                try:
+                    options["lineheight"] = float(args[i])
+                except ValueError:
+                    raise TerminalCommandError("--lineheight must be a number.")
+            elif token == "--width":
+                i += 1
+                if i >= len(args):
+                    raise TerminalCommandError("Provide a width value after --width.")
+                try:
+                    options["width"] = int(args[i])
+                except ValueError:
+                    raise TerminalCommandError("--width must be a number.")
+            elif token == "--height":
+                i += 1
+                if i >= len(args):
+                    raise TerminalCommandError("Provide a height value after --height.")
+                try:
+                    options["height"] = int(args[i])
+                except ValueError:
+                    raise TerminalCommandError("--height must be a number.")
+            elif token == "--left":
+                i += 1
+                if i >= len(args):
+                    raise TerminalCommandError("Provide a left position value after --left.")
+                try:
+                    options["left"] = int(args[i])
+                except ValueError:
+                    raise TerminalCommandError("--left must be a number.")
+            elif token == "--top":
+                i += 1
+                if i >= len(args):
+                    raise TerminalCommandError("Provide a top position value after --top.")
+                try:
+                    options["top"] = int(args[i])
+                except ValueError:
+                    raise TerminalCommandError("--top must be a number.")
+            elif token == "--radius":
+                i += 1
+                if i >= len(args):
+                    raise TerminalCommandError("Provide a radius value after --radius.")
+                try:
+                    options["radius"] = int(args[i])
+                except ValueError:
+                    raise TerminalCommandError("--radius must be a number.")
+            elif token == "--border":
+                i += 1
+                if i >= len(args):
+                    raise TerminalCommandError("Provide a border width value after --border.")
+                try:
+                    options["border"] = int(args[i])
+                except ValueError:
+                    raise TerminalCommandError("--border must be a number.")
+            elif token == "--bordercolor":
+                i += 1
+                if i >= len(args):
+                    raise TerminalCommandError("Provide a border color value after --bordercolor.")
+                options["bordercolor"] = args[i]
+            elif token == "--shadow":
+                i += 1
+                if i >= len(args):
+                    raise TerminalCommandError("Provide shadow values after --shadow.")
+                options["shadow"] = args[i]
+            elif token == "--opacity":
+                i += 1
+                if i >= len(args):
+                    raise TerminalCommandError("Provide an opacity value after --opacity.")
+                try:
+                    opacity = float(args[i])
+                    if not 0.0 <= opacity <= 1.0:
+                        raise TerminalCommandError("--opacity must be between 0.0 and 1.0.")
+                    options["opacity"] = opacity
+                except ValueError:
+                    raise TerminalCommandError("--opacity must be a number between 0.0 and 1.0.")
+            elif token == "--padding":
+                i += 1
+                if i >= len(args):
+                    raise TerminalCommandError("Provide padding values after --padding.")
+                options["padding"] = args[i]
+            elif token == "--margin":
+                i += 1
+                if i >= len(args):
+                    raise TerminalCommandError("Provide margin values after --margin.")
+                options["margin"] = args[i]
+            elif token == "--zindex":
+                i += 1
+                if i >= len(args):
+                    raise TerminalCommandError("Provide a z-index value after --zindex.")
+                try:
+                    options["zindex"] = int(args[i])
+                except ValueError:
+                    raise TerminalCommandError("--zindex must be a number.")
+            elif token == "--rotate":
+                i += 1
+                if i >= len(args):
+                    raise TerminalCommandError("Provide a rotation value after --rotate.")
+                try:
+                    options["rotate"] = int(args[i])
+                except ValueError:
+                    raise TerminalCommandError("--rotate must be a number.")
+            else:
+                raise TerminalCommandError(f"Unrecognized flag “{token}”.")
+            i += 1
+
+        return options
+
+    def _parse_content_arguments(self, args: Sequence[str]) -> Dict[str, Any]:
+        """Parse arguments for content-related commands."""
+        options: Dict[str, Any] = {
+            "text": None,
+            "page": None,
+        }
+
+        i = 0
+        while i < len(args):
+            token = args[i]
+            if token == "--text":
+                i += 1
+                if i >= len(args):
+                    raise TerminalCommandError("Provide text content after --text.")
+                options["text"] = args[i]
+            elif token == "--page":
+                i += 1
+                if i >= len(args):
+                    raise TerminalCommandError("Provide a page number after --page.")
+                options["page"] = self._coerce_positive_int(args[i], "page number")
+            else:
+                raise TerminalCommandError(f"Unrecognized flag “{token}”.")
+            i += 1
+
+        if options["text"] is None:
+            raise TerminalCommandError("Text content is required.")
+
+        return options
+
+    def _apply_block_edits(self, block: Dict[str, Any], options: Dict[str, Any]) -> None:
+        """Apply edits to a block based on the provided options."""
+        # Text formatting
+        if options["bold"] is not None:
+            block.setdefault("typography", {})["bold"] = options["bold"]
+        if options["italic"] is not None:
+            block.setdefault("typography", {})["italic"] = options["italic"]
+        if options["underline"] is not None:
+            block.setdefault("typography", {})["underline"] = options["underline"]
+        if options["strikethrough"] is not None:
+            block.setdefault("typography", {})["strikethrough"] = options["strikethrough"]
+        if options["fontsize"] is not None:
+            block.setdefault("typography", {})["fontSize"] = options["fontsize"]
+        if options["fontfamily"] is not None:
+            block.setdefault("typography", {})["fontFamily"] = options["fontfamily"]
+        if options["textcolor"] is not None:
+            block.setdefault("typography", {})["color"] = options["textcolor"]
+        if options["align"] is not None:
+            block.setdefault("typography", {})["textAlign"] = options["align"]
+        if options["lineheight"] is not None:
+            block.setdefault("typography", {})["lineHeight"] = options["lineheight"]
+
+        # Position and sizing
+        position = block.setdefault("position", {})
+        if options["width"] is not None:
+            position["width"] = options["width"]
+        if options["height"] is not None:
+            position["height"] = options["height"]
+        if options["left"] is not None:
+            position["left"] = options["left"]
+        if options["top"] is not None:
+            position["top"] = options["top"]
+
+        # Visual styling
+        if options["bg"] is not None:
+            block["backgroundColor"] = options["bg"]
+        if options["radius"] is not None:
+            block["borderRadius"] = options["radius"]
+        if options["border"] is not None:
+            block["borderWidth"] = options["border"]
+        if options["bordercolor"] is not None:
+            block["borderColor"] = options["bordercolor"]
+        if options["shadow"] is not None:
+            block["shadow"] = options["shadow"]
+        if options["opacity"] is not None:
+            block["opacity"] = options["opacity"]
+        if options["padding"] is not None:
+            block["padding"] = options["padding"]
+        if options["margin"] is not None:
+            block["margin"] = options["margin"]
+        if options["zindex"] is not None:
+            block["zIndex"] = options["zindex"]
+        if options["rotate"] is not None:
+            block["rotate"] = options["rotate"]

@@ -180,7 +180,7 @@ document.addEventListener('DOMContentLoaded', () => {
     const CHAT_ATTACHMENT_LIMIT = 6;
     const CHAT_LAYOUT_PREVIEW_LIMIT = 6000;
     const CHAT_TREE_PREVIEW_LIMIT = 4000;
-    const PAGE_THUMB_BLOCK_LIMIT = 4;
+    const PAGE_THUMB_BLOCK_LIMIT = 20;
     const PAGE_MENU_ACTIONS = [
         { id: 'rename', label: 'Rename page' },
         { id: 'duplicate', label: 'Duplicate page' },

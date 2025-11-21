@@ -1700,6 +1700,10 @@ def chat_assistant():
     else:
         effective_tool_limit = min(requested_tool_limit, global_tool_cap)
     progress_token = (payload.get("progressToken") or "").strip() or None
+    auto_continue = bool(payload.get("autoContinue", False))
+    max_iterations = int(payload.get("maxIterations", 10))  # Default to 10 iterations to prevent infinite loops
+    iteration_count = 0
+
     _init_agent_progress(progress_token, "starting", "Contacting the assistant…")
 
     attachments: List[Dict[str, Any]] = []
@@ -1724,7 +1728,7 @@ def chat_assistant():
             agent_snapshot = client_snapshot
         else:
             agent_snapshot = _build_project_snapshot(project)
-    layout = agent_snapshot["layout"] if agent_snapshot else load_layout(project)
+
     allow_tools = agent_mode_enabled
     tool_permissions = {
         "allow_layout_edits": allow_layout_edits,
@@ -1733,36 +1737,106 @@ def chat_assistant():
     def _progress(status: str, detail: Optional[str] = None) -> None:
         _update_agent_progress(progress_token, status=status, detail=detail or status)
 
-    reply, layout_updated, agent_trace = _generate_chat_reply(
-        message,
-        attachments,
-        agent_snapshot,
-        project=project,
-        allow_tools=allow_tools,
-        tool_permissions=tool_permissions,
-        tool_limit=effective_tool_limit if allow_tools else None,
-        agent_mode=mode_label if allow_tools else None,
-        progress_callback=_progress,
-    )
-    if layout_updated:
+    all_replies = []
+    all_traces = []
+    final_layout_updated = False
+
+    # Auto-continuing loop
+    original_attachments = list(attachments)  # Preserve original attachments
+
+    while iteration_count < max_iterations:
+        iteration_count += 1
+        layout = agent_snapshot["layout"] if agent_snapshot else load_layout(project)
+
+        # Prepare attachments for this iteration
+        current_attachments = list(original_attachments)  # Start with original attachments
+
+        # Get canvas preview to add to attachments if auto-continuing
+        if auto_continue and iteration_count > 1:  # Add canvas attachment from 2nd iteration onward
+            try:
+                canvas_attachment = _render_canvas_preview(project)
+                # Add canvas as attachment for subsequent iterations
+                if canvas_attachment and canvas_attachment.get("dataUrl"):
+                    current_attachments.append({
+                        "type": "image/png",
+                        "label": f"Canvas Preview - Iteration {iteration_count}",
+                        "dataUrl": canvas_attachment.get("dataUrl"),
+                        "meta": {
+                            "iteration": iteration_count,
+                            "page": canvas_attachment.get("label", "current page"),
+                            "width": canvas_attachment.get("width"),
+                            "height": canvas_attachment.get("height")
+                        }
+                    })
+            except Exception as e:
+                app.logger.warning(f"Could not capture canvas preview for auto-continue iteration {iteration_count}: {e}")
+
+        reply, layout_updated, agent_trace = _generate_chat_reply(
+            message if iteration_count == 1 else "",  # Only use original message in first iteration
+            current_attachments,  # Use current attachments including canvas preview
+            agent_snapshot,
+            project=project,
+            allow_tools=allow_tools,
+            tool_permissions=tool_permissions,
+            tool_limit=effective_tool_limit if allow_tools else None,
+            agent_mode=mode_label if allow_tools else None,
+            progress_callback=_progress,
+        )
+
+        all_replies.append(reply)
+        all_traces.extend(agent_trace)
+        final_layout_updated = final_layout_updated or layout_updated
+
+        # Check if the agent has indicated completion by looking for certain phrases in the reply
+        reply_lower = reply.lower() if reply else ""
+        completion_indicators = [
+            "complete", "completed", "finished", "done", "task completed", "all done",
+            "all tasks completed", "work is done", "finished work", "finished the task"
+        ]
+
+        should_stop = any(indicator in reply_lower for indicator in completion_indicators)
+
+        # Update agent snapshot for next iteration
+        if layout_updated:
+            agent_snapshot = _build_project_snapshot(project)
+
+        # If not auto-continuing or agent indicates completion or max iterations reached, break
+        if not auto_continue or should_stop or iteration_count >= max_iterations:
+            break
+
+        # Reset progress for next iteration
+        _update_agent_progress(progress_token, status="continuing", detail=f"Starting iteration {iteration_count + 1}...")
+
+        # Add a small delay to prevent overwhelming the API
+        import time
+        time.sleep(0.5)
+
+    # Combine all replies
+    final_reply = "\n\n---\n\n".join(all_replies) if len(all_replies) > 1 else all_replies[0] if all_replies else ""
+
+    # Update final snapshot
+    if final_layout_updated:
         agent_snapshot = _build_project_snapshot(project)
-        layout = agent_snapshot.get("layout", layout)
+
+    layout = agent_snapshot["layout"] if agent_snapshot else load_layout(project)
     pages = layout.get("pages") or []
     total_blocks = sum(len(page.get("blocks", [])) for page in pages)
     if not total_blocks:
         total_blocks = len(layout.get("blocks", []))
-    tokens_used, image_bytes = _estimate_chat_token_usage(message, attachments, reply or "")
+    tokens_used, image_bytes = _estimate_chat_token_usage(message, attachments, final_reply or "")
     _record_token_usage(tokens_used, image_bytes)
     stats = _get_token_stats()
-    _update_agent_progress(progress_token, status="complete", detail="Assistant reply ready.", done=True)
+    _update_agent_progress(progress_token, status="complete", detail=f"Auto-continuation completed after {iteration_count} iteration(s).", done=True)
     return jsonify(
         {
             "success": True,
-            "reply": reply,
+            "reply": final_reply,
             "agentSnapshot": agent_snapshot,
-            "agentTrace": agent_trace,
+            "agentTrace": all_traces,
             "actions": {
-                "layoutUpdated": layout_updated,
+                "layoutUpdated": final_layout_updated,
+                "iterations": iteration_count,
+                "autoContinue": auto_continue,
             },
             "summary": {
                 "project": project,
@@ -1773,6 +1847,8 @@ def chat_assistant():
             "agentOptions": {
                 "mode": mode_label,
                 "toolLimit": effective_tool_limit,
+                "autoContinue": auto_continue,
+                "maxIterations": max_iterations,
             },
         }
     )

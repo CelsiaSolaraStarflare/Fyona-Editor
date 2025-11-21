@@ -12,53 +12,28 @@
   },
   "blocks": [
     {
-      "id": "block-9de98fa69bde",
+      "id": "toc-title",
       "type": "text",
-      "content": "Page 1",
+      "content": "TABLE OF CONTENTS",
       "position": {
-        "left": 700,
-        "top": 1080,
-        "width": 240,
-        "height": 120
+        "left": 64,
+        "top": 64,
+        "width": 674,
+        "height": 130
       },
       "backgroundColor": "#ffffff",
       "textColor": "#1c2333",
       "borderRadius": 12,
       "imageUrl": null,
       "typography": {
-        "fontFamily": "inter",
+        "fontFamily": "merriweather",
         "fontSize": 16
       },
       "margin": {
-        "top": 16,
-        "right": 16,
-        "bottom": 16,
-        "left": 16
-      }
-    },
-    {
-      "id": "block-38a8f1cc0b9e",
-      "type": "image",
-      "content": "Hero Image",
-      "position": {
-        "left": 103,
-        "top": 322,
-        "width": 240,
-        "height": 120
-      },
-      "backgroundColor": "#ffffff",
-      "textColor": "#1c2333",
-      "borderRadius": 12,
-      "imageUrl": "Hero Image",
-      "typography": {
-        "fontFamily": "inter",
-        "fontSize": 16
-      },
-      "margin": {
-        "top": 0,
-        "right": 0,
-        "bottom": 0,
-        "left": 0
+        "top": 24,
+        "right": 32,
+        "bottom": 24,
+        "left": 32
       }
     }
   ],
@@ -69,14 +44,64 @@
       "order": 0,
       "blocks": [
         {
-          "id": "block-9de98fa69bde",
+          "id": "block-headline",
           "type": "text",
-          "content": "Page 1",
+          "content": "Fyona: Your Editorial Design Assistant",
           "position": {
-            "left": 700,
-            "top": 1080,
-            "width": 240,
-            "height": 120
+            "left": 64,
+            "top": 64,
+            "width": 662,
+            "height": 96
+          },
+          "backgroundColor": "#000000",
+          "textColor": "#ffffff",
+          "borderRadius": 12,
+          "imageUrl": null,
+          "typography": {
+            "fontFamily": "inter",
+            "fontSize": 16
+          },
+          "margin": {
+            "top": 32,
+            "right": 32,
+            "bottom": 8,
+            "left": 32
+          }
+        },
+        {
+          "id": "block-subhead",
+          "type": "text",
+          "content": "Helping you plan and refine magazine layouts with precision.",
+          "position": {
+            "left": 64,
+            "top": 160,
+            "width": 662,
+            "height": 48
+          },
+          "backgroundColor": "#ffffff",
+          "textColor": "#1c2333",
+          "borderRadius": 12,
+          "imageUrl": null,
+          "typography": {
+            "fontFamily": "inter",
+            "fontSize": 16
+          },
+          "margin": {
+            "top": 8,
+            "right": 32,
+            "bottom": 24,
+            "left": 32
+          }
+        },
+        {
+          "id": "block-image-slot-1",
+          "type": "image",
+          "content": "Image Slot 1 (for later use)",
+          "position": {
+            "left": 64,
+            "top": 240,
+            "width": 662,
+            "height": 240
           },
           "backgroundColor": "#ffffff",
           "textColor": "#1c2333",
@@ -88,34 +113,59 @@
           },
           "margin": {
             "top": 16,
-            "right": 16,
+            "right": 32,
             "bottom": 16,
-            "left": 16
+            "left": 32
           }
         },
         {
-          "id": "block-38a8f1cc0b9e",
+          "id": "block-image-slot-2",
           "type": "image",
-          "content": "Hero Image",
+          "content": "Image Slot 2 (for later use)",
           "position": {
-            "left": 103,
-            "top": 322,
-            "width": 240,
-            "height": 120
+            "left": 64,
+            "top": 512,
+            "width": 314,
+            "height": 160
           },
           "backgroundColor": "#ffffff",
           "textColor": "#1c2333",
           "borderRadius": 12,
-          "imageUrl": "Hero Image",
+          "imageUrl": null,
           "typography": {
             "fontFamily": "inter",
             "fontSize": 16
           },
           "margin": {
-            "top": 0,
-            "right": 0,
-            "bottom": 0,
-            "left": 0
+            "top": 16,
+            "right": 32,
+            "bottom": 16,
+            "left": 32
+          }
+        },
+        {
+          "id": "block-image-slot-3",
+          "type": "image",
+          "content": "Image Slot 3 (for later use)",
+          "position": {
+            "left": 410,
+            "top": 512,
+            "width": 314,
+            "height": 160
+          },
+          "backgroundColor": "#ffffff",
+          "textColor": "#1c2333",
+          "borderRadius": 12,
+          "imageUrl": null,
+          "typography": {
+            "fontFamily": "inter",
+            "fontSize": 16
+          },
+          "margin": {
+            "top": 16,
+            "right": 32,
+            "bottom": 16,
+            "left": 32
           }
         }
       ]
@@ -124,7 +174,33 @@
       "id": "page-2-new",
       "name": "Page 2",
       "order": 1,
-      "blocks": []
+      "blocks": [
+        {
+          "id": "toc-title",
+          "type": "text",
+          "content": "TABLE OF CONTENTS",
+          "position": {
+            "left": 64,
+            "top": 64,
+            "width": 674,
+            "height": 130
+          },
+          "backgroundColor": "#ffffff",
+          "textColor": "#1c2333",
+          "borderRadius": 12,
+          "imageUrl": null,
+          "typography": {
+            "fontFamily": "merriweather",
+            "fontSize": 16
+          },
+          "margin": {
+            "top": 24,
+            "right": 32,
+            "bottom": 24,
+            "left": 32
+          }
+        }
+      ]
     }
   ],
   "layers": [
@@ -135,6 +211,6 @@
     }
   ],
   "activeLayer": "layer-main",
-  "activePageId": "page-710eafee8f24",
+  "activePageId": "page-2-new",
   "project": "demonstration"
 }
