@@ -12,46 +12,46 @@
   },
   "blocks": [
     {
-      "id": "block-masthead",
+      "id": "block-fyona-heading",
       "type": "text",
-      "content": "Fyona Magazine",
+      "content": "What is Fyona?",
       "position": {
         "left": 48,
-        "top": 47,
-        "width": 698,
-        "height": 90
+        "top": 48,
+        "width": 385,
+        "height": 58
       },
-      "backgroundColor": "#000000",
+      "backgroundColor": "#050816",
       "textColor": "#f8fafc",
-      "borderRadius": 12,
+      "borderRadius": 0,
       "imageUrl": null,
       "typography": {
         "fontFamily": "inter",
-        "fontSize": 64,
-        "fontWeight": 800,
-        "letterSpacing": 0.08,
-        "lineHeight": 1.05
+        "fontSize": 28,
+        "fontWeight": 700,
+        "letterSpacing": 0.04,
+        "lineHeight": 1.2
       },
       "margin": {
-        "top": 5,
+        "top": 16,
         "right": 16,
         "bottom": 16,
         "left": 16
       }
     },
     {
-      "id": "block-subtitle",
+      "id": "block-fyona-body",
       "type": "text",
-      "content": "Designing the Future of Editorial Systems",
+      "content": "Fyona is your dedicated editorial design assistant, engineered to streamline the creation of magazine layouts with precision and elegance. From initial concept to final polish, Fyona acts as your co-pilot — helping you define grids, choose typography systems, and structure multi-page narratives that resonate visually and functionally.\n\nWhether you’re adjusting column widths, balancing white space, or aligning modular components across spreads, Fyona integrates seamlessly into your workflow. It understands editorial rhythm and visual hierarchy, offering real-time guidance so you can focus on creativity rather than technical constraints.\n\nBeyond layout mechanics, Fyona brings intelligence to your process. It anticipates spacing needs, suggests typographic pairings, and flags potential readability issues before they become problems. Think of it as an always-on design mentor — quietly enhancing your decisions while preserving your unique voice.",
       "position": {
-        "left": 49,
-        "top": 152,
-        "width": 700,
-        "height": 161
+        "left": 54,
+        "top": 115,
+        "width": 392,
+        "height": 364
       },
-      "backgroundColor": "#000000",
+      "backgroundColor": "#050816",
       "textColor": "#cbd5f5",
-      "borderRadius": 12,
+      "borderRadius": 0,
       "imageUrl": null,
       "typography": {
         "fontFamily": "inter",
@@ -68,14 +68,39 @@
       }
     },
     {
-      "id": "block-footer",
-      "type": "text",
-      "content": "Issue 01 • Spring 2025",
+      "id": "block-fyona-logo",
+      "type": "image",
+      "content": "176354643500648.WEBP",
       "position": {
-        "left": 47,
-        "top": 1059,
-        "width": 701,
-        "height": 55
+        "left": 456,
+        "top": 48,
+        "width": 192,
+        "height": 192
+      },
+      "backgroundColor": "#050816",
+      "textColor": "#f8fafc",
+      "borderRadius": 8,
+      "imageUrl": "/project-assets/default/176354643500648-da4e3680e4.WEBP",
+      "typography": {
+        "fontFamily": "inter",
+        "fontSize": 16
+      },
+      "margin": {
+        "top": 0,
+        "right": 0,
+        "bottom": 0,
+        "left": 0
+      }
+    },
+    {
+      "id": "block-fyona-caption",
+      "type": "text",
+      "content": "The main interface of Fyona in action",
+      "position": {
+        "left": 456,
+        "top": 252,
+        "width": 192,
+        "height": 40
       },
       "backgroundColor": "#050816",
       "textColor": "#475569",
@@ -88,6 +113,31 @@
         "letterSpacing": 0.16,
         "lineHeight": 1.4,
         "transform": "uppercase"
+      },
+      "margin": {
+        "top": 8,
+        "right": 8,
+        "bottom": 8,
+        "left": 8
+      }
+    },
+    {
+      "id": "block-fyona-divider",
+      "type": "shape",
+      "content": "",
+      "position": {
+        "left": 66,
+        "top": 516,
+        "width": 384,
+        "height": 40
+      },
+      "backgroundColor": "#a855f7",
+      "textColor": "#000000",
+      "borderRadius": 0,
+      "imageUrl": null,
+      "typography": {
+        "fontFamily": "inter",
+        "fontSize": 16
       },
       "margin": {
         "top": 16,
@@ -236,12 +286,12 @@
         {
           "id": "block-fyona-body",
           "type": "text",
-          "content": "Fyona is your editorial design assistant — helping you plan and refine magazine layouts with precision. Whether you're adjusting grids, selecting typography, or composing multi-page spreads, Fyona provides real-time feedback and intelligent suggestions to elevate your editorial design workflow.",
+          "content": "Fyona is your dedicated editorial design assistant, engineered to streamline the creation of magazine layouts with precision and elegance. From initial concept to final polish, Fyona acts as your co-pilot — helping you define grids, choose typography systems, and structure multi-page narratives that resonate visually and functionally.\n\nWhether you’re adjusting column widths, balancing white space, or aligning modular components across spreads, Fyona integrates seamlessly into your workflow. It understands editorial rhythm and visual hierarchy, offering real-time guidance so you can focus on creativity rather than technical constraints.\n\nBeyond layout mechanics, Fyona brings intelligence to your process. It anticipates spacing needs, suggests typographic pairings, and flags potential readability issues before they become problems. Think of it as an always-on design mentor — quietly enhancing your decisions while preserving your unique voice.",
           "position": {
             "left": 54,
             "top": 115,
-            "width": 384,
-            "height": 140
+            "width": 392,
+            "height": 364
           },
           "backgroundColor": "#050816",
           "textColor": "#cbd5f5",
@@ -320,8 +370,8 @@
           "type": "shape",
           "content": "",
           "position": {
-            "left": 52,
-            "top": 269,
+            "left": 66,
+            "top": 516,
             "width": 384,
             "height": 40
           },
@@ -546,7 +596,7 @@
     }
   ],
   "activeLayer": "layer-content",
-  "activePageId": "page-cover",
+  "activePageId": "page-4e160247",
   "project": "default",
   "theme": {
     "grid": {

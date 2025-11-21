@@ -343,6 +343,7 @@ select:focus {
     font: inherit;
     color: inherit;
     transition: border 120ms ease, transform 120ms ease, box-shadow 120ms ease;
+    position: relative;
 }
 
 .page-thumb:hover,
@@ -394,6 +395,80 @@ select:focus {
 .page-thumb__label {
     font-weight: 600;
     color: var(--color-text);
+}
+
+.page-thumb__actions {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    z-index: 1;
+}
+
+.page-thumb__menu {
+    width: 28px;
+    height: 28px;
+    display: grid;
+    place-items: center;
+    border: 1px solid rgba(17,24,39,0.12);
+    border-radius: 8px;
+    background: rgba(255,255,255,0.9);
+    color: var(--color-muted);
+    cursor: pointer;
+    padding: 0;
+    font-size: 18px;
+    line-height: 1;
+    transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
+}
+
+.page-thumb__menu:hover,
+.page-thumb__menu:focus-visible {
+    background: rgba(61, 90, 241, 0.08);
+    border-color: rgba(61, 90, 241, 0.35);
+    color: var(--color-text);
+}
+
+.page-menu {
+    position: fixed;
+    min-width: 180px;
+    background: var(--color-surface-strong);
+    border: 1px solid rgba(17,24,39,0.12);
+    border-radius: 14px;
+    padding: 6px;
+    box-shadow: 0 20px 40px rgba(15, 23, 42, 0.18);
+    z-index: 1200;
+}
+
+.page-menu__list {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+
+.page-menu__item {
+    width: 100%;
+    border: none;
+    background: transparent;
+    padding: 10px 12px;
+    border-radius: 10px;
+    font: inherit;
+    text-align: left;
+    color: var(--color-text);
+    cursor: pointer;
+    transition: background 100ms ease, color 100ms ease;
+}
+
+.page-menu__item:hover,
+.page-menu__item:focus-visible {
+    background: rgba(61, 90, 241, 0.08);
+}
+
+.page-menu__item--danger {
+    color: var(--color-danger);
+}
+
+.page-menu__item--danger:hover,
+.page-menu__item--danger:focus-visible {
+    background: rgba(248, 113, 113, 0.12);
 }
 
 .page-insert {

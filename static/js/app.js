@@ -91,6 +91,12 @@ document.addEventListener('DOMContentLoaded', () => {
         orientation: 'portrait',
         pendingImageBlock: null,
         zoom: 1,
+        pageMenu: {
+            element: null,
+            open: false,
+            pageId: null,
+            anchor: null,
+        },
         chat: {
             open: false,
             messages: [],
@@ -169,6 +175,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const CHAT_LAYOUT_PREVIEW_LIMIT = 6000;
     const CHAT_TREE_PREVIEW_LIMIT = 4000;
     const PAGE_THUMB_BLOCK_LIMIT = 4;
+    const PAGE_MENU_ACTIONS = [
+        { id: 'rename', label: 'Rename page' },
+        { id: 'duplicate', label: 'Duplicate page' },
+        { id: 'copy', label: 'Copy to clipboard' },
+        { id: 'delete', label: 'Delete page', tone: 'danger' },
+    ];
     const LAYOUT_SYNC_DELAY = 600;
     const CHAT_PANEL_MIN_WIDTH = 260;
     const CHAT_PANEL_MAX_WIDTH = 640;
@@ -256,6 +268,55 @@ document.addEventListener('DOMContentLoaded', () => {
         if (firstActive) {
             activate(firstActive.dataset.target);
         }
+    }
+
+    function initPageMenu() {
+        const menu = document.createElement('div');
+        menu.className = 'page-menu';
+        menu.hidden = true;
+
+        const list = document.createElement('div');
+        list.className = 'page-menu__list';
+        PAGE_MENU_ACTIONS.forEach((action) => {
+            const btn = document.createElement('button');
+            btn.type = 'button';
+            btn.className = 'page-menu__item';
+            if (action.tone === 'danger') {
+                btn.classList.add('page-menu__item--danger');
+            }
+            btn.dataset.action = action.id;
+            btn.textContent = action.label;
+            btn.addEventListener('click', () => {
+                handlePageMenuAction(action.id);
+            });
+            list.appendChild(btn);
+        });
+
+        menu.appendChild(list);
+        document.body.appendChild(menu);
+        state.pageMenu.element = menu;
+
+        document.addEventListener('click', (event) => {
+            if (!state.pageMenu.open || !state.pageMenu.element) return;
+            const anchor = state.pageMenu.anchor;
+            if (!state.pageMenu.element.contains(event.target) && !(anchor && anchor.contains(event.target))) {
+                closePageMenu();
+            }
+        });
+        document.addEventListener('contextmenu', (event) => {
+            if (!state.pageMenu.open || !state.pageMenu.element) return;
+            const anchor = state.pageMenu.anchor;
+            if (!state.pageMenu.element.contains(event.target) && !(anchor && anchor.contains(event.target))) {
+                closePageMenu();
+            }
+        });
+        document.addEventListener('keydown', (event) => {
+            if (!state.pageMenu.open) return;
+            if (event.key === 'Escape') {
+                event.preventDefault();
+                closePageMenu();
+            }
+        });
     }
 
     function initFontOptions() {
@@ -820,11 +881,214 @@ document.addEventListener('DOMContentLoaded', () => {
         if (els.pagesEmpty) {
             els.pagesEmpty.hidden = true;
         }
+        if (!container.dataset.pageMenuBound) {
+            container.addEventListener('contextmenu', (event) => {
+                const thumb = event.target.closest('.page-thumb');
+                if (!thumb) return;
+                event.preventDefault();
+                event.stopPropagation();
+                const pageId = thumb.dataset.pageId;
+                const anchor = thumb.querySelector('.page-thumb__menu') || thumb;
+                openPageMenu(event, pageId, anchor);
+            });
+            container.dataset.pageMenuBound = 'true';
+        }
         container.appendChild(createPageInsertButton(0));
         state.pages.forEach((page, index) => {
             container.appendChild(createPagePreview(page));
             container.appendChild(createPageInsertButton(index + 1));
         });
+    }
+
+    function openPageMenu(event, pageId, anchorElement = null) {
+        if (!state.pageMenu.element) return;
+        if (event) {
+            event.preventDefault();
+            event.stopPropagation();
+        }
+        const menu = state.pageMenu.element;
+        state.pageMenu.pageId = pageId;
+        state.pageMenu.open = true;
+        state.pageMenu.anchor = anchorElement || (event?.currentTarget && event.currentTarget.nodeType === 1 ? event.currentTarget : null);
+        menu.hidden = false;
+        menu.style.visibility = 'hidden';
+        positionPageMenuForEvent(menu, event, anchorElement);
+        menu.style.visibility = '';
+        const firstItem = menu.querySelector('.page-menu__item');
+        if (firstItem) {
+            firstItem.focus({ preventScroll: true });
+        }
+    }
+
+    function closePageMenu() {
+        if (!state.pageMenu.element) return;
+        state.pageMenu.open = false;
+        state.pageMenu.pageId = null;
+        state.pageMenu.anchor = null;
+        state.pageMenu.element.hidden = true;
+    }
+
+    function handlePageMenuAction(actionId) {
+        const pageId = state.pageMenu.pageId;
+        closePageMenu();
+        if (!pageId) return;
+        switch (actionId) {
+            case 'rename':
+                renamePage(pageId);
+                break;
+            case 'duplicate':
+                duplicatePage(pageId);
+                break;
+            case 'copy':
+                copyPageToClipboard(pageId);
+                break;
+            case 'delete':
+                deletePageById(pageId);
+                break;
+            default:
+                break;
+        }
+    }
+
+    function positionPageMenuForEvent(menu, event, anchorElement) {
+        const anchorRect = anchorElement?.getBoundingClientRect?.();
+        const width = menu.offsetWidth || 200;
+        const height = menu.offsetHeight || 150;
+        const margin = 10;
+        let left = event?.clientX ?? window.innerWidth / 2;
+        let top = event?.clientY ?? window.innerHeight / 2;
+        if (anchorRect) {
+            left = anchorRect.right - width;
+            top = anchorRect.bottom + 6;
+        }
+        if (left + width + margin > window.innerWidth) {
+            left = Math.max(margin, window.innerWidth - width - margin);
+        }
+        if (top + height + margin > window.innerHeight) {
+            top = Math.max(margin, window.innerHeight - height - margin);
+        }
+        menu.style.left = `${Math.round(left)}px`;
+        menu.style.top = `${Math.round(top)}px`;
+    }
+
+    function renamePage(pageId) {
+        const page = state.pages.find((item) => item.id === pageId);
+        if (!page) return;
+        const value = prompt('Rename page', page.name || `Page ${page.order + 1}`);
+        if (value === null) return;
+        const nextName = value.trim() || `Page ${page.order + 1}`;
+        syncActivePageBlocks();
+        page.name = nextName;
+        state.layout.pages = state.pages;
+        renderPagesSidebar();
+        queueLayoutSync();
+        showToast(`Renamed to ${nextName}`);
+    }
+
+    function duplicatePage(pageId) {
+        const index = state.pages.findIndex((item) => item.id === pageId);
+        if (index === -1) return;
+        syncActivePageBlocks();
+        const source = state.pages[index];
+        const clonedBlocks = (source.blocks || []).map((block) => cloneBlockForPage(block));
+        const nextName = `${source.name || 'Page'} copy`;
+        const newPage = {
+            ...source,
+            id: generatePageId(),
+            name: nextName,
+            blocks: clonedBlocks,
+        };
+        state.pages.splice(index + 1, 0, newPage);
+        resortPages();
+        state.layout.pages = state.pages;
+        setActivePage(newPage.id, { force: true, skipPersist: true });
+        queueLayoutSync();
+        showToast('Page duplicated');
+    }
+
+    async function copyPageToClipboard(pageId) {
+        const page = state.pages.find((item) => item.id === pageId);
+        if (!page) return;
+        syncActivePageBlocks();
+        const payload = {
+            ...page,
+            blocks: (page.blocks || []).map((block) => ({
+                ...block,
+                position: block.position ? { ...block.position } : undefined,
+                margin: block.margin ? { ...block.margin } : undefined,
+                typography: block.typography ? { ...block.typography } : undefined,
+            })),
+        };
+        const text = JSON.stringify(payload, null, 2);
+        try {
+            if (navigator.clipboard?.writeText) {
+                await navigator.clipboard.writeText(text);
+                showToast('Page copied to clipboard');
+                return;
+            }
+        } catch (error) {
+            console.warn('Clipboard write failed', error);
+        }
+        const temp = document.createElement('textarea');
+        temp.value = text;
+        document.body.appendChild(temp);
+        temp.select();
+        try {
+            document.execCommand('copy');
+            showToast('Page copied to clipboard');
+        } catch (error) {
+            console.warn('Fallback clipboard copy failed', error);
+            showToast('Unable to copy page', true);
+        } finally {
+            temp.remove();
+        }
+    }
+
+    function deletePageById(pageId) {
+        const page = state.pages.find((item) => item.id === pageId);
+        if (!page) return;
+        const confirmed = confirm(`Delete "${page.name || 'this page'}"? This cannot be undone.`);
+        if (!confirmed) return;
+        syncActivePageBlocks();
+        hydratedPages.delete(pageId);
+        state.pages = state.pages.filter((item) => item.id !== pageId);
+        resortPages();
+        const nowActive = state.activePageId === pageId;
+        if (nowActive) {
+            const fallback = state.pages[0] || null;
+            state.activePageId = fallback ? fallback.id : null;
+            state.layout.activePageId = state.activePageId;
+        }
+        state.layout.pages = state.pages;
+        if (state.activePageId) {
+            setActivePage(state.activePageId, { force: true, skipPersist: true });
+        } else {
+            state.layout.activePageId = null;
+            state.layout.blocks = [];
+            state.blocks.clear();
+            state.blockElements.forEach((el) => el.remove());
+            state.blockElements.clear();
+            state.blockOrder = [];
+            if (els.canvas) {
+                els.canvas.innerHTML = '';
+            }
+            renderPagesSidebar();
+        }
+        queueLayoutSync();
+        showToast('Page deleted');
+    }
+
+    function cloneBlockForPage(block) {
+        const position = block.position ? { ...block.position } : {};
+        const margin = block.margin ? { ...block.margin } : null;
+        const typography = block.typography ? { ...block.typography } : null;
+        return {
+            ...block,
+            id: generateClientId(),
+            position,
+            margin,
+            typography,
+        };
     }
 
     function createPageInsertButton(index) {
@@ -841,9 +1105,10 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function createPagePreview(page) {
-        const button = document.createElement('button');
-        button.type = 'button';
+        const button = document.createElement('div');
         button.className = 'page-thumb';
+        button.setAttribute('role', 'button');
+        button.tabIndex = 0;
         if (page.id === state.activePageId) {
             button.classList.add('page-thumb--active');
         }
@@ -856,6 +1121,28 @@ document.addEventListener('DOMContentLoaded', () => {
 
         const preview = document.createElement('div');
         preview.className = 'page-thumb__preview';
+        const actions = document.createElement('div');
+        actions.className = 'page-thumb__actions';
+        const menuTrigger = document.createElement('button');
+        menuTrigger.type = 'button';
+        menuTrigger.className = 'page-thumb__menu';
+        menuTrigger.setAttribute('aria-label', 'Page actions');
+        menuTrigger.innerHTML = '&#8942;';
+        const openMenu = (event) => openPageMenu(event, page.id, menuTrigger);
+        menuTrigger.addEventListener('click', openMenu);
+        menuTrigger.addEventListener('contextmenu', (event) => {
+            event.preventDefault();
+            openMenu(event);
+        });
+        menuTrigger.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                openMenu(event);
+            }
+        });
+        actions.appendChild(menuTrigger);
+        preview.appendChild(actions);
+
         const previewCanvas = document.createElement('div');
         previewCanvas.className = 'page-thumb__preview-canvas';
         const dims = state.layout?.dimensions || CANVAS_PRESETS[state.format] || CANVAS_PRESETS.A4;
@@ -891,8 +1178,17 @@ document.addEventListener('DOMContentLoaded', () => {
 
         button.appendChild(preview);
         button.appendChild(meta);
-        button.addEventListener('click', () => {
-            setActivePage(page.id);
+        button.addEventListener('click', () => setActivePage(page.id));
+        button.addEventListener('keydown', (event) => {
+            if (event.key === 'Enter' || event.key === ' ') {
+                event.preventDefault();
+                setActivePage(page.id);
+            }
+        });
+        button.addEventListener('contextmenu', (event) => {
+            event.preventDefault();
+            const anchor = button.querySelector('.page-thumb__menu') || button;
+            openPageMenu(event, page.id, anchor);
         });
         return button;
     }
