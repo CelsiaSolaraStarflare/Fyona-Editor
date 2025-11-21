@@ -45,6 +45,7 @@ document.addEventListener('DOMContentLoaded', () => {
         zoomLabel: document.getElementById('zoom-label'),
         chatLauncher: document.getElementById('chat-launcher'),
         chatPanel: document.getElementById('chat-panel'),
+        chatBackdrop: document.getElementById('chat-backdrop'),
         chatClose: document.getElementById('chat-close'),
         chatLog: document.getElementById('chat-log'),
         chatForm: document.getElementById('chat-form'),
@@ -52,6 +53,10 @@ document.addEventListener('DOMContentLoaded', () => {
         chatAttachCanvas: document.getElementById('chat-attach-canvas'),
         chatAttachments: document.getElementById('chat-attachments'),
         chatStatus: document.getElementById('chat-status'),
+        chatProgress: document.getElementById('chat-progress'),
+        chatIntent: document.getElementById('chat-intent'),
+        chatIntentCopy: document.getElementById('chat-intent-copy'),
+        chatIntentPalette: document.getElementById('chat-intent-palette'),
         chatAgentToggle: document.getElementById('chat-agent-toggle'),
         chatAgentIndicator: document.getElementById('chat-agent-indicator'),
         chatAgentAllowEdits: document.getElementById('chat-agent-allow-edits'),
@@ -118,6 +123,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 messageId: null,
                 lastStatus: null,
                 historyLength: 0,
+                events: [],
             },
         },
         terminal: {
@@ -218,6 +224,7 @@ document.addEventListener('DOMContentLoaded', () => {
         await loadProjects();
         await loadLayout(state.project);
         await loadTokenStats();
+        renderDesignIntent();
     }
 
     function configureZoomControl() {

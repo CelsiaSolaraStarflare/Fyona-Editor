@@ -188,22 +188,33 @@
     </template>
 
     <div class="chat-assistant" id="chat-root">
-        <button type="button" id="chat-launcher" class="chat-launcher" aria-haspopup="dialog" aria-controls="chat-panel" aria-expanded="false">
-            <span class="chat-launcher__icon">💬</span>
-            <span class="chat-launcher__label">Ask Fyona</span>
+        <button
+            type="button"
+            id="chat-launcher"
+            class="spotlight-launcher"
+            aria-haspopup="dialog"
+            aria-controls="chat-panel"
+            aria-expanded="false"
+            title="Open Fyona spotlight (⌘K)"
+        >
+            <span class="spotlight-launcher__icon">⌘K</span>
+            <div class="spotlight-launcher__copy">
+                <span class="spotlight-launcher__label">Fyona spotlight</span>
+                <span class="spotlight-launcher__hint">Plan the canvas with live steps</span>
+            </div>
         </button>
-        <section class="chat-panel" id="chat-panel" aria-hidden="true">
-            <button type="button" class="chat-panel__resize-handle" id="chat-resize-handle" aria-label="Resize assistant panel">
-                <svg viewBox="0 0 44 20" role="presentation" aria-hidden="true" focusable="false">
-                    <path d="M3 17 C12 4, 32 4, 41 17" />
-                </svg>
-            </button>
+
+        <div class="chat-backdrop" id="chat-backdrop" aria-hidden="true"></div>
+
+        <section class="chat-panel" id="chat-panel" aria-hidden="true" role="dialog" aria-modal="true">
             <header class="chat-panel__header">
-                <div>
-                    <p class="chat-panel__title">Fyona Assistant</p>
+                <div class="chat-panel__titleblock">
+                    <p class="chat-panel__eyebrow">Fyona canvas agent</p>
+                    <p class="chat-panel__title">Spotlight</p>
                     <p class="chat-panel__subtitle" id="chat-status">Assistant ready</p>
                 </div>
                 <div class="chat-panel__header-actions">
+                    <p class="chat-token-stats" id="chat-token-stats" aria-live="polite">Tokens: —</p>
                     <div class="chat-agent-actions">
                         <button type="button" class="chat-agent-toggle" id="chat-agent-toggle">Agent Mode Off</button>
                         <button
@@ -244,16 +255,48 @@
                     <button type="button" class="chat-close" id="chat-close" aria-label="Close assistant">×</button>
                 </div>
             </header>
-            <p class="chat-token-stats" id="chat-token-stats" aria-live="polite">Tokens: —</p>
-            <div class="chat-log" id="chat-log" role="log" aria-live="polite"></div>
-            <div class="chat-panel__attachments" id="chat-attachments" hidden></div>
-            <div class="chat-panel__actions">
-                <button type="button" class="btn btn--secondary" id="chat-attach-canvas">Attach current page as PNG</button>
+
+            <div class="spotlight-intent" id="chat-intent">
+                <div class="spotlight-intent__label">Layout direction</div>
+                <p class="spotlight-intent__body" id="chat-intent-copy">Fyona will reshuffle the canvas with a clear grid before placing content.</p>
+                <div class="spotlight-intent__palette" id="chat-intent-palette"></div>
             </div>
-            <form class="chat-form" id="chat-form">
-                <textarea id="chat-input" rows="2" placeholder="Ask Fyona anything…"></textarea>
-                <button type="submit" class="btn btn--primary">Send</button>
+
+            <form class="chat-form spotlight-form" id="chat-form">
+                <div class="spotlight-input">
+                    <span class="spotlight-input__icon" aria-hidden="true">⌕</span>
+                    <input
+                        id="chat-input"
+                        type="text"
+                        placeholder="Search for layouts, ask for a structure, or outline the cover aesthetic…"
+                        autocomplete="off"
+                    >
+                    <div class="spotlight-input__actions">
+                        <button type="button" class="btn btn--ghost" id="chat-attach-canvas">Attach current page</button>
+                        <button type="submit" class="btn btn--primary">Run</button>
+                    </div>
+                </div>
             </form>
+
+            <div class="chat-panel__attachments" id="chat-attachments" hidden></div>
+
+            <div class="chat-panel__surface">
+                <section class="spotlight-track" aria-label="Agent progress">
+                    <header class="spotlight-track__header">
+                        <p class="spotlight-track__title">Agent timeline</p>
+                        <p class="spotlight-track__hint">Every step before content lands on the canvas.</p>
+                    </header>
+                    <ol class="spotlight-steps" id="chat-progress"></ol>
+                </section>
+
+                <section class="spotlight-results" aria-label="Assistant output">
+                    <header class="spotlight-track__header">
+                        <p class="spotlight-track__title">Results</p>
+                        <p class="spotlight-track__hint">Reasons, drafts, and snapshots.</p>
+                    </header>
+                    <div class="chat-log" id="chat-log" role="log" aria-live="polite"></div>
+                </section>
+            </div>
         </section>
     </div>
 
