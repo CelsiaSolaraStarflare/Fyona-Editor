@@ -1252,8 +1252,7 @@ input:focus {
 .chat-panel__surface {
     display: grid;
     grid-template-columns: 1fr 1.05fr;
-    gap: 14px;
-    min-height: 320px;
+    overflow-y: auto;
 }
 
 .spotlight-track {
@@ -1442,7 +1441,8 @@ input:focus {
 }
 
 .chat-message__attachment img {
-    width: 100%;
+    max-width: 200px;
+    height: auto;
     border-radius: 10px;
     margin-top: 4px;
     border: 1px solid rgba(255, 255, 255, 0.12);
