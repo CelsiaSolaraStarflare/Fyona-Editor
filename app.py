@@ -1,4 +1,5 @@
 import base64
+import html
 import io
 import json
 import os
@@ -60,11 +61,11 @@ CHAT_ATTACHMENT_LIMIT = 6
 MAX_AGENT_FILES = 24
 MAX_AGENT_BYTES = 8_192
 MAX_AGENT_TOOL_CALLS = 0  # zero or negative removes the cap
-DEFAULT_AGENT_TOOL_MODE = "balanced"
+DEFAULT_AGENT_TOOL_MODE = "unbounded"
 AGENT_TOOL_BUDGET_PRESETS = {
-    "quick": 4,
-    "balanced": 12,
-    "deep": 24,
+    "quick": None,
+    "balanced": None,
+    "deep": None,
     "unbounded": None,
 }
 AGENT_TOOL_BUDGET_MIN = 2
@@ -121,6 +122,7 @@ BING_SEARCH_API_KEY = os.getenv("BING_SEARCH_API_KEY")
 BING_SEARCH_MARKET = os.getenv("BING_SEARCH_MARKET", "en-US")
 DEFAULT_BING_IMAGE_ENDPOINT = "https://api.bing.microsoft.com/v7.0/images/search"
 BING_IMAGE_ENDPOINT = os.getenv("BING_IMAGE_ENDPOINT", DEFAULT_BING_IMAGE_ENDPOINT)
+BING_HTML_FALLBACK_ALLOWED = (os.getenv("BING_HTML_FALLBACK_ALLOWED") or "true").lower() in {"1", "true", "yes", "on"}
 
 DEFAULT_LAYOUT: Dict[str, Any] = {
     "columns": 3,
@@ -183,54 +185,86 @@ def media_dir(name: str) -> Path:
 
 
 def _bing_search_available() -> bool:
-    return bool(BING_SEARCH_API_KEY and BING_SEARCH_ENDPOINT)
+    return bool((BING_SEARCH_API_KEY and BING_SEARCH_ENDPOINT) or BING_HTML_FALLBACK_ALLOWED)
 
 
 def _perform_bing_web_search(query: str, *, count: int = 5) -> List[Dict[str, str]]:
-    if not _bing_search_available():
-        raise RuntimeError("Bing search is not configured on this server.")
     clean_query = (query or "").strip()
     if not clean_query:
         return []
     safe_count = max(1, min(int(count or 5), 10))
+    if BING_SEARCH_API_KEY and BING_SEARCH_ENDPOINT:
+        params = {
+            "q": clean_query,
+            "count": safe_count,
+            "mkt": BING_SEARCH_MARKET or "en-US",
+            "textDecorations": "false",
+            "textFormat": "Raw",
+            "safeSearch": "Moderate",
+        }
+        url = f"{BING_SEARCH_ENDPOINT}?{urllib.parse.urlencode(params)}"
+        request = urllib.request.Request(url)
+        request.add_header("Ocp-Apim-Subscription-Key", BING_SEARCH_API_KEY or "")
+        request.add_header("User-Agent", "FyonaEditor/1.0")
+        try:
+            with urllib.request.urlopen(request, timeout=12) as response:
+                payload = response.read().decode("utf-8")
+                data = json.loads(payload)
+        except urllib.error.HTTPError as exc:
+            detail = ""
+            try:
+                detail = exc.read().decode("utf-8")
+            except Exception:  # pragma: no cover - best effort diagnostics
+                detail = ""
+            message = detail.strip()[:200] or exc.reason
+            raise RuntimeError(f"Bing search HTTP {exc.code}: {message}") from exc
+        except urllib.error.URLError as exc:
+            raise RuntimeError(f"Bing search connection failed: {exc.reason}") from exc
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(f"Bing search returned invalid JSON: {exc}") from exc
+        web_pages = data.get("webPages", {}).get("value", []) or []
+        results: List[Dict[str, str]] = []
+        for item in web_pages[:safe_count]:
+            results.append(
+                {
+                    "title": item.get("name") or "",
+                    "url": item.get("url") or "",
+                    "snippet": item.get("snippet") or "",
+                }
+            )
+        return results
+
+    # Fallback: scrape HTML results directly from bing.com when API key is unavailable.
     params = {
         "q": clean_query,
-        "count": safe_count,
         "mkt": BING_SEARCH_MARKET or "en-US",
-        "textDecorations": "false",
-        "textFormat": "Raw",
-        "safeSearch": "Moderate",
+        "setlang": "en",
     }
-    url = f"{BING_SEARCH_ENDPOINT}?{urllib.parse.urlencode(params)}"
-    request = urllib.request.Request(url)
-    request.add_header("Ocp-Apim-Subscription-Key", BING_SEARCH_API_KEY or "")
-    request.add_header("User-Agent", "FyonaEditor/1.0")
+    url = f"https://www.bing.com/search?{urllib.parse.urlencode(params)}"
+    request = urllib.request.Request(url, headers={"User-Agent": "FyonaEditor/1.0"})
     try:
         with urllib.request.urlopen(request, timeout=12) as response:
-            payload = response.read().decode("utf-8")
-            data = json.loads(payload)
-    except urllib.error.HTTPError as exc:
-        detail = ""
-        try:
-            detail = exc.read().decode("utf-8")
-        except Exception:  # pragma: no cover - best effort diagnostics
-            detail = ""
-        message = detail.strip()[:200] or exc.reason
-        raise RuntimeError(f"Bing search HTTP {exc.code}: {message}") from exc
-    except urllib.error.URLError as exc:
-        raise RuntimeError(f"Bing search connection failed: {exc.reason}") from exc
-    except json.JSONDecodeError as exc:
-        raise RuntimeError(f"Bing search returned invalid JSON: {exc}") from exc
-    web_pages = data.get("webPages", {}).get("value", []) or []
+            html_body = response.read().decode("utf-8", errors="replace")
+    except urllib.error.HTTPError as exc:  # pragma: no cover - network guard
+        raise RuntimeError(f"Bing HTML search HTTP {exc.code}") from exc
+    except urllib.error.URLError as exc:  # pragma: no cover - network guard
+        raise RuntimeError(f"Bing HTML search failed: {exc.reason}") from exc
+
     results: List[Dict[str, str]] = []
-    for item in web_pages[:safe_count]:
-        results.append(
-            {
-                "title": item.get("name") or "",
-                "url": item.get("url") or "",
-                "snippet": item.get("snippet") or "",
-            }
-        )
+    pattern = re.compile(r'<li class="b_algo".*?<h2><a href="(?P<href>[^"]+)"[^>]*>(?P<title>.*?)</a>', re.S)
+    for match in pattern.finditer(html_body):
+        href = match.group("href")
+        title_html = match.group("title")
+        title_text = re.sub("<.*?>", "", title_html or "")
+        title = html.unescape(title_text).strip()
+        snippet = ""
+        snippet_match = re.search(r"<p>(.*?)</p>", html_body[match.start(): match.end()], re.S)
+        if snippet_match:
+            snippet = html.unescape(re.sub("<.*?>", "", snippet_match.group(1) or "").strip())
+        if title or href:
+            results.append({"title": title or href, "url": href, "snippet": snippet})
+        if len(results) >= safe_count:
+            break
     return results
 
 
@@ -241,44 +275,73 @@ def _perform_bing_image_search(query: str, *, count: int = 6) -> List[Dict[str, 
     if not clean_query:
         return []
     safe_count = max(1, min(int(count or 6), 10))
-    params = {
-        "q": clean_query,
-        "count": safe_count,
-        "mkt": BING_SEARCH_MARKET or "en-US",
-        "safeSearch": "Moderate",
-    }
-    url = f"{BING_IMAGE_ENDPOINT}?{urllib.parse.urlencode(params)}"
-    request = urllib.request.Request(url)
-    request.add_header("Ocp-Apim-Subscription-Key", BING_SEARCH_API_KEY or "")
-    request.add_header("User-Agent", "FyonaEditor/1.0")
+    if BING_SEARCH_API_KEY and BING_IMAGE_ENDPOINT:
+        params = {
+            "q": clean_query,
+            "count": safe_count,
+            "mkt": BING_SEARCH_MARKET or "en-US",
+            "safeSearch": "Moderate",
+        }
+        url = f"{BING_IMAGE_ENDPOINT}?{urllib.parse.urlencode(params)}"
+        request = urllib.request.Request(url)
+        request.add_header("Ocp-Apim-Subscription-Key", BING_SEARCH_API_KEY or "")
+        request.add_header("User-Agent", "FyonaEditor/1.0")
+        try:
+            with urllib.request.urlopen(request, timeout=12) as response:
+                payload = response.read().decode("utf-8")
+                data = json.loads(payload)
+        except urllib.error.HTTPError as exc:
+            detail = ""
+            try:
+                detail = exc.read().decode("utf-8")
+            except Exception:
+                detail = ""
+            message = detail.strip()[:200] or exc.reason
+            raise RuntimeError(f"Bing image search HTTP {exc.code}: {message}") from exc
+        except urllib.error.URLError as exc:
+            raise RuntimeError(f"Bing image search connection failed: {exc.reason}") from exc
+        except json.JSONDecodeError as exc:
+            raise RuntimeError(f"Bing image search returned invalid JSON: {exc}") from exc
+        entries = data.get("value") or []
+        results: List[Dict[str, Any]] = []
+        for item in entries[:safe_count]:
+            results.append(
+                {
+                    "title": item.get("name") or "",
+                    "url": item.get("contentUrl") or "",
+                    "thumbnail": item.get("thumbnailUrl") or "",
+                    "width": item.get("width"),
+                    "height": item.get("height"),
+                }
+            )
+        return results
+
+    # Fallback HTML scrape for images.
+    params = {"q": clean_query, "form": "HDRSC2", "mkt": BING_SEARCH_MARKET or "en-US"}
+    url = f"https://www.bing.com/images/search?{urllib.parse.urlencode(params)}"
+    request = urllib.request.Request(url, headers={"User-Agent": "FyonaEditor/1.0"})
     try:
         with urllib.request.urlopen(request, timeout=12) as response:
-            payload = response.read().decode("utf-8")
-            data = json.loads(payload)
-    except urllib.error.HTTPError as exc:
-        detail = ""
-        try:
-            detail = exc.read().decode("utf-8")
-        except Exception:
-            detail = ""
-        message = detail.strip()[:200] or exc.reason
-        raise RuntimeError(f"Bing image search HTTP {exc.code}: {message}") from exc
-    except urllib.error.URLError as exc:
-        raise RuntimeError(f"Bing image search connection failed: {exc.reason}") from exc
-    except json.JSONDecodeError as exc:
-        raise RuntimeError(f"Bing image search returned invalid JSON: {exc}") from exc
-    entries = data.get("value") or []
+            html_body = response.read().decode("utf-8", errors="replace")
+    except urllib.error.HTTPError as exc:  # pragma: no cover - network guard
+        raise RuntimeError(f"Bing image HTML search HTTP {exc.code}") from exc
+    except urllib.error.URLError as exc:  # pragma: no cover - network guard
+        raise RuntimeError(f"Bing image HTML search failed: {exc.reason}") from exc
+
+    # Extract direct image URLs from inline metadata (murl) and thumbnails (turl).
     results: List[Dict[str, Any]] = []
-    for item in entries[:safe_count]:
-        results.append(
-            {
-                "title": item.get("name") or "",
-                "url": item.get("contentUrl") or "",
-                "thumbnail": item.get("thumbnailUrl") or "",
-                "width": item.get("width"),
-                "height": item.get("height"),
-            }
-        )
+    direct_urls = re.finditer(r'"murl"\s*:\s*"(?P<url>[^"]+)"', html_body)
+    thumbs = list(re.finditer(r'"turl"\s*:\s*"(?P<thumb>[^"]+)"', html_body))
+    thumbs_iter = iter(thumbs)
+    for match in direct_urls:
+        image_url = html.unescape(match.group("url"))
+        thumb_match = next(thumbs_iter, None)
+        thumb_url = html.unescape(thumb_match.group("thumb")) if thumb_match else ""
+        if not image_url:
+            continue
+        results.append({"title": Path(urllib.parse.urlparse(image_url).path).name, "url": image_url, "thumbnail": thumb_url})
+        if len(results) >= safe_count:
+            break
     return results
 
 

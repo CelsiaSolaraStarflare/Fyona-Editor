@@ -70,12 +70,12 @@ document.addEventListener('DOMContentLoaded', () => {
     const initialProject = (params.get('project') || '').trim() || 'default';
 
     const AGENT_TOOL_MODES = [
-        { id: 'quick', label: 'Quick scan', description: 'Short run with minimal tool calls.', toolLimit: 4 },
-        { id: 'balanced', label: 'Builder', description: 'Balanced mode for edits and layout tweaks.', toolLimit: 12 },
-        { id: 'deep', label: 'Deep dive', description: 'Aggressive planning with heavy tool use.', toolLimit: 24 },
+        { id: 'quick', label: 'Quick scan', description: 'Fast pass with no tool cap.', toolLimit: null },
+        { id: 'balanced', label: 'Builder', description: 'Balanced edits with no tool cap.', toolLimit: null },
+        { id: 'deep', label: 'Deep dive', description: 'Aggressive planning with no tool cap.', toolLimit: null },
         { id: 'unbounded', label: 'Autopilot', description: 'No cap; let Fyona keep calling tools.', toolLimit: null },
     ];
-    const DEFAULT_AGENT_MODE = 'balanced';
+    const DEFAULT_AGENT_MODE = 'unbounded';
 
     const state = {
         project: initialProject,
@@ -575,14 +575,6 @@ document.addEventListener('DOMContentLoaded', () => {
                     els.projectSelect.appendChild(option);
                 }
                 els.projectSelect.value = state.project;
-            }
-        if (previousProject !== project && state.chat.agentEnabled) {
-            state.chat.agentEnabled = false;
-            state.chat.agentSnapshot = null;
-            state.chat.agentCanEdit = false;
-            state.chat.agentAllowWeb = false;
-            state.chat.optionsOpen = false;
-                updateAgentToggle();
             }
             state.layout = { ...layout };
             state.pages = normalizePagesFromLayout(layout);
@@ -1796,14 +1788,7 @@ document.addEventListener('DOMContentLoaded', () => {
     }
 
     function getActiveAgentToolLimit() {
-        if (state.chat.agentToolLimit === undefined) {
-            state.chat.agentToolLimit = resolveAgentToolLimit(state.chat.agentMode);
-        }
-        const normalized = normalizeToolLimit(state.chat.agentToolLimit);
-        if (normalized === undefined) {
-            return resolveAgentToolLimit(state.chat.agentMode);
-        }
-        return normalized;
+        return null;
     }
 
     function formatToolLimitLabel(limit) {
