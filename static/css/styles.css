@@ -995,6 +995,41 @@ input:focus {
     color: var(--color-muted);
 }
 
+.chat-agent-mode {
+    margin-top: 2px;
+    padding-top: 6px;
+    border-top: 1px solid rgba(15, 23, 42, 0.06);
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.chat-agent-mode__row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 8px;
+}
+
+.chat-agent-mode__label {
+    font-size: 0.78rem;
+    font-weight: 600;
+    color: var(--color-muted);
+}
+
+.chat-agent-mode__select {
+    flex: 1;
+    min-width: 180px;
+    font-size: 0.85rem;
+}
+
+.chat-agent-mode__hint {
+    margin: 0;
+    font-size: 0.72rem;
+    color: var(--color-muted);
+    line-height: 1.4;
+}
+
 .chat-log {
     flex: 1;
     overflow-y: auto;

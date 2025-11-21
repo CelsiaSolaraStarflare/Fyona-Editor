@@ -1,11 +1,16 @@
 from __future__ import annotations
 
 import json
+import mimetypes
 import os
+import urllib.error
+import urllib.parse
+import urllib.request
 from copy import deepcopy
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Callable, Dict, List, Optional
+from uuid import uuid4
 
 from terminal import TerminalCommandError, TerminalProcessor
 
@@ -27,9 +32,11 @@ class AgentToolContext:
     save_layout: Callable[[str, Dict[str, Any]], Dict[str, Any]]
     terminal_factory: Optional[Callable[[Dict[str, Any]], TerminalProcessor]] = None
     project_root: Optional[Path] = None
+    project_media_dir: Optional[Path] = None
     allow_layout_edits: bool = False
     allow_web_search: bool = False
     web_search: Optional[Callable[[str, int], List[Dict[str, str]]]] = None
+    web_image_search: Optional[Callable[[str, int], List[Dict[str, Any]]]] = None
 
 
 @dataclass
@@ -60,6 +67,8 @@ PROJECT_SEARCH_MAX_MATCHES = 20
 PROJECT_SEARCH_MIN_MATCHES = 3
 PROJECT_SEARCH_MAX_FILE_BYTES = 512_000
 PROJECT_SEARCH_SNIPPET_CHARS = 240
+REMOTE_IMAGE_MAX_BYTES = 10_000_000
+REMOTE_IMAGE_TIMEOUT = 12
 
 
 def _truncate(text: str, limit: Optional[int]) -> str:
@@ -123,6 +132,16 @@ def _resolve_project_path(context: AgentToolContext, raw_path: str) -> Path:
 def _ensure_edit_permission(context: AgentToolContext) -> None:
     if not context.allow_layout_edits:
         raise AgentToolError("Enable “Allow layout edits” in the agent options before running this tool.")
+
+
+def _ensure_media_dir(context: AgentToolContext) -> Path:
+    root = _require_project_root(context)
+    media_dir = context.project_media_dir or (root / "media")
+    try:
+        media_dir.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:  # pragma: no cover - filesystem guard
+        raise AgentToolError(f"Unable to create media directory: {exc}") from exc
+    return media_dir
 
 
 def _is_hidden_name(name: str) -> bool:
@@ -361,6 +380,54 @@ def _handle_read_project_file(context: AgentToolContext, params: Dict[str, Any])
     return ToolResult(content=f"{header}\n{preview}")
 
 
+def _safe_url_filename(url: str, fallback: str = "image") -> str:
+    parsed = urllib.parse.urlparse(url)
+    name = Path(parsed.path).name or fallback
+    if "." not in name:
+        return name
+    stem, suffix = os.path.splitext(name)
+    safe_stem = stem.strip() or fallback
+    safe_suffix = suffix if suffix else ""
+    return f"{safe_stem}{safe_suffix}"
+
+
+def _download_remote_image(context: AgentToolContext, url: str, filename: Optional[str] = None) -> Path:
+    media_dir = _ensure_media_dir(context)
+    clean_url = (url or "").strip()
+    if not clean_url:
+        raise AgentToolError("'url' is required to download an image.")
+    parsed = urllib.parse.urlparse(clean_url)
+    if parsed.scheme.lower() not in {"http", "https"}:
+        raise AgentToolError("Image URL must start with http or https.")
+    request = urllib.request.Request(clean_url, headers={"User-Agent": "FyonaAgent/1.0"})
+    try:
+        with urllib.request.urlopen(request, timeout=REMOTE_IMAGE_TIMEOUT) as response:
+            info = response.info()
+            mime_type = info.get_content_type()
+            raw = response.read(REMOTE_IMAGE_MAX_BYTES + 2048)
+    except urllib.error.HTTPError as exc:  # pragma: no cover - network guard
+        raise AgentToolError(f"Download failed (HTTP {exc.code}).") from exc
+    except urllib.error.URLError as exc:  # pragma: no cover - network guard
+        raise AgentToolError(f"Download failed: {exc.reason}") from exc
+    if len(raw) > REMOTE_IMAGE_MAX_BYTES:
+        raise AgentToolError("Image is too large; limit is 10 MB.")
+    ext = None
+    if mime_type and mime_type != "application/octet-stream":
+        ext = mimetypes.guess_extension(mime_type) or None
+    name_hint = filename or _safe_url_filename(clean_url, "image")
+    stem = Path(name_hint).stem or "image"
+    suffix = Path(name_hint).suffix or ""
+    if not suffix and ext:
+        suffix = ext
+    unique = f"{stem}-{uuid4().hex[:8]}{suffix or '.bin'}"
+    target = media_dir / unique
+    try:
+        target.write_bytes(raw)
+    except OSError as exc:  # pragma: no cover - filesystem guard
+        raise AgentToolError(f"Unable to save image: {exc}") from exc
+    return target
+
+
 def _handle_search_project_files(context: AgentToolContext, params: Dict[str, Any]) -> ToolResult:
     root = _require_project_root(context)
     needle = (params.get("query") or "").strip()
@@ -442,6 +509,80 @@ def _handle_web_search(context: AgentToolContext, params: Dict[str, Any]) -> Too
             entry += f"\n   {snippet}"
         lines.append(entry)
     return ToolResult(content=_truncate("\n\n".join(lines), MAX_TOOL_RESPONSE))
+
+
+def _handle_web_image_search(context: AgentToolContext, params: Dict[str, Any]) -> ToolResult:
+    if not context.allow_web_search or context.web_image_search is None:
+        raise AgentToolError("Enable Bing web search in the assistant options before using this tool.")
+    query = (params.get("query") or "").strip()
+    if not query:
+        raise AgentToolError("'query' is required when calling web_image_search.")
+    count = _clamp_int(params.get("count"), default=6, min_value=1, max_value=10)
+    try:
+        results = context.web_image_search(query, count)
+    except AgentToolError:
+        raise
+    except Exception as exc:  # pragma: no cover - network and API guard
+        raise AgentToolError(f"Bing image search failed: {exc}") from exc
+    if not results:
+        return ToolResult(content=f"No image results for “{query}”.")
+    lines: List[str] = [f"Bing images for “{query}”:"]
+    for index, item in enumerate(results, 1):
+        title = item.get("title") or item.get("name") or f"Image {index}"
+        thumb = item.get("thumbnail") or item.get("thumbnailUrl") or ""
+        url = item.get("url") or item.get("contentUrl") or ""
+        size = ""
+        if item.get("width") and item.get("height"):
+            size = f"{item['width']}×{item['height']}"
+        entry = f"{index}. {title}"
+        if size:
+            entry += f" ({size})"
+        if url:
+            entry += f"\n   {url}"
+        if thumb and thumb != url:
+            entry += f"\n   preview: {thumb}"
+        lines.append(entry)
+    return ToolResult(content=_truncate("\n\n".join(lines), MAX_TOOL_RESPONSE))
+
+
+def _handle_save_remote_image(context: AgentToolContext, params: Dict[str, Any]) -> ToolResult:
+    _ensure_edit_permission(context)
+    url = params.get("url") or ""
+    filename = params.get("filename")
+    block_id = params.get("block_id")
+    target = _download_remote_image(context, url, filename)
+    saved_url = f"/project-assets/{context.project}/{target.name}"
+    detail_lines = [f"Saved image to media/{target.name}", f"URL: {saved_url}"]
+    layout_changed = False
+    if block_id:
+        layout = context.load_layout(context.project)
+        pages = layout.get("pages") or []
+        owning_page = None
+        target_block = None
+        for page in pages:
+            for block in page.get("blocks") or []:
+                if block.get("id") == block_id:
+                    owning_page = page
+                    target_block = block
+                    break
+            if target_block:
+                break
+        if target_block:
+            block_type = (target_block.get("type") or "").lower()
+            if block_type != "image":
+                detail_lines.append(f"Note: block {block_id} is type '{block_type or 'unknown'}'; layout not updated.")
+            else:
+                target_block["imageUrl"] = saved_url
+                if not target_block.get("content"):
+                    target_block["content"] = target.name
+                saved_layout = context.save_layout(context.project, layout)
+                summary = _summarize_layout(saved_layout)
+                detail_lines.append(f"Linked to image block {block_id}.")
+                detail_lines.append(summary)
+                layout_changed = True
+        else:
+            detail_lines.append(f"Note: block {block_id} was not found; layout not updated.")
+    return ToolResult(content="\n".join(detail_lines), layout_changed=layout_changed)
 
 
 class AgentToolset:
@@ -614,6 +755,30 @@ class AgentToolset:
                 },
                 handler=_handle_search_project_files,
             ),
+            ToolDefinition(
+                name="save_remote_image",
+                description="Download an image from a URL into the project's media folder. Optionally attach it to an image block.",
+                parameters={
+                    "type": "object",
+                    "properties": {
+                        "url": {
+                            "type": "string",
+                            "description": "HTTP or HTTPS URL of the image to download.",
+                        },
+                        "filename": {
+                            "type": "string",
+                            "description": "Preferred filename (extension optional).",
+                        },
+                        "block_id": {
+                            "type": "string",
+                            "description": "Optional block ID to link the downloaded image to.",
+                        },
+                    },
+                    "required": ["url"],
+                    "additionalProperties": False,
+                },
+                handler=_handle_save_remote_image,
+            ),
         ]
         if context.web_search is not None and context.allow_web_search:
             tool_definitions.append(
@@ -637,6 +802,28 @@ class AgentToolset:
                     handler=_handle_web_search,
                 )
             )
+            if context.web_image_search is not None:
+                tool_definitions.append(
+                    ToolDefinition(
+                        name="web_image_search",
+                        description="Search Bing Images and return direct image URLs plus thumbnails.",
+                        parameters={
+                            "type": "object",
+                            "properties": {
+                                "query": {"type": "string", "description": "Describe the image you need."},
+                                "count": {
+                                    "type": "integer",
+                                    "minimum": 1,
+                                    "maximum": 10,
+                                    "description": "Maximum number of results to return (default 6).",
+                                },
+                            },
+                            "required": ["query"],
+                            "additionalProperties": False,
+                        },
+                        handler=_handle_web_image_search,
+                    )
+                )
         self._tools: Dict[str, ToolDefinition] = {tool.name: tool for tool in tool_definitions}
 
     @property

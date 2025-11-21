@@ -60,6 +60,15 @@ CHAT_ATTACHMENT_LIMIT = 6
 MAX_AGENT_FILES = 24
 MAX_AGENT_BYTES = 8_192
 MAX_AGENT_TOOL_CALLS = 0  # zero or negative removes the cap
+DEFAULT_AGENT_TOOL_MODE = "balanced"
+AGENT_TOOL_BUDGET_PRESETS = {
+    "quick": 4,
+    "balanced": 12,
+    "deep": 24,
+    "unbounded": None,
+}
+AGENT_TOOL_BUDGET_MIN = 2
+AGENT_TOOL_BUDGET_MAX = 64
 DEFAULT_DASHSCOPE_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
 DASHSCOPE_BASE_URL = os.getenv("DASHSCOPE_BASE_URL", DEFAULT_DASHSCOPE_BASE_URL)
 DASHSCOPE_API_KEY = os.getenv("DASHSCOPE_API_KEY")
@@ -110,6 +119,8 @@ DEFAULT_BING_SEARCH_ENDPOINT = "https://api.bing.microsoft.com/v7.0/search"
 BING_SEARCH_ENDPOINT = os.getenv("BING_SEARCH_ENDPOINT", DEFAULT_BING_SEARCH_ENDPOINT)
 BING_SEARCH_API_KEY = os.getenv("BING_SEARCH_API_KEY")
 BING_SEARCH_MARKET = os.getenv("BING_SEARCH_MARKET", "en-US")
+DEFAULT_BING_IMAGE_ENDPOINT = "https://api.bing.microsoft.com/v7.0/images/search"
+BING_IMAGE_ENDPOINT = os.getenv("BING_IMAGE_ENDPOINT", DEFAULT_BING_IMAGE_ENDPOINT)
 
 DEFAULT_LAYOUT: Dict[str, Any] = {
     "columns": 3,
@@ -221,6 +232,82 @@ def _perform_bing_web_search(query: str, *, count: int = 5) -> List[Dict[str, st
             }
         )
     return results
+
+
+def _perform_bing_image_search(query: str, *, count: int = 6) -> List[Dict[str, Any]]:
+    if not _bing_search_available():
+        raise RuntimeError("Bing search is not configured on this server.")
+    clean_query = (query or "").strip()
+    if not clean_query:
+        return []
+    safe_count = max(1, min(int(count or 6), 10))
+    params = {
+        "q": clean_query,
+        "count": safe_count,
+        "mkt": BING_SEARCH_MARKET or "en-US",
+        "safeSearch": "Moderate",
+    }
+    url = f"{BING_IMAGE_ENDPOINT}?{urllib.parse.urlencode(params)}"
+    request = urllib.request.Request(url)
+    request.add_header("Ocp-Apim-Subscription-Key", BING_SEARCH_API_KEY or "")
+    request.add_header("User-Agent", "FyonaEditor/1.0")
+    try:
+        with urllib.request.urlopen(request, timeout=12) as response:
+            payload = response.read().decode("utf-8")
+            data = json.loads(payload)
+    except urllib.error.HTTPError as exc:
+        detail = ""
+        try:
+            detail = exc.read().decode("utf-8")
+        except Exception:
+            detail = ""
+        message = detail.strip()[:200] or exc.reason
+        raise RuntimeError(f"Bing image search HTTP {exc.code}: {message}") from exc
+    except urllib.error.URLError as exc:
+        raise RuntimeError(f"Bing image search connection failed: {exc.reason}") from exc
+    except json.JSONDecodeError as exc:
+        raise RuntimeError(f"Bing image search returned invalid JSON: {exc}") from exc
+    entries = data.get("value") or []
+    results: List[Dict[str, Any]] = []
+    for item in entries[:safe_count]:
+        results.append(
+            {
+                "title": item.get("name") or "",
+                "url": item.get("contentUrl") or "",
+                "thumbnail": item.get("thumbnailUrl") or "",
+                "width": item.get("width"),
+                "height": item.get("height"),
+            }
+        )
+    return results
+
+
+def _normalize_tool_budget(raw_limit: Any) -> Optional[int]:
+    if raw_limit is None:
+        return None
+    try:
+        value = int(raw_limit)
+    except (TypeError, ValueError):
+        return None
+    if value <= 0:
+        return None
+    if value < AGENT_TOOL_BUDGET_MIN:
+        return AGENT_TOOL_BUDGET_MIN
+    if value > AGENT_TOOL_BUDGET_MAX:
+        return AGENT_TOOL_BUDGET_MAX
+    return value
+
+
+def _resolve_agent_tool_budget(mode: Optional[str], requested_limit: Any) -> Tuple[str, Optional[int]]:
+    raw_mode = mode if isinstance(mode, str) else DEFAULT_AGENT_TOOL_MODE if mode is None else str(mode)
+    mode_key = (raw_mode or DEFAULT_AGENT_TOOL_MODE).strip().lower() or DEFAULT_AGENT_TOOL_MODE
+    if mode_key not in AGENT_TOOL_BUDGET_PRESETS:
+        mode_key = DEFAULT_AGENT_TOOL_MODE
+    limit = AGENT_TOOL_BUDGET_PRESETS.get(mode_key)
+    if requested_limit is not None:
+        normalized = _normalize_tool_budget(requested_limit)
+        limit = normalized
+    return mode_key, limit
 
 
 def deep_merge(target: Dict[str, Any], updates: Dict[str, Any]) -> Dict[str, Any]:
@@ -1051,11 +1138,16 @@ def _build_agent_toolset(project: str, permissions: Optional[Dict[str, bool]] = 
     allow_web_search = bool(perm_payload.get("allow_web_search") and _bing_search_available())
 
     web_search_callable: Optional[Callable[[str, int], List[Dict[str, str]]]] = None
+    web_image_search_callable: Optional[Callable[[str, int], List[Dict[str, Any]]]] = None
     if allow_web_search:
         def _web_search_adapter(query: str, count: int) -> List[Dict[str, str]]:
             return _perform_bing_web_search(query, count=count)
 
         web_search_callable = _web_search_adapter
+        def _web_image_search_adapter(query: str, count: int) -> List[Dict[str, Any]]:
+            return _perform_bing_image_search(query, count=count)
+
+        web_image_search_callable = _web_image_search_adapter
 
     context = AgentToolContext(
         project=project,
@@ -1063,9 +1155,11 @@ def _build_agent_toolset(project: str, permissions: Optional[Dict[str, bool]] = 
         save_layout=save_layout,
         terminal_factory=_terminal_factory,
         project_root=project_dir(project),
+        project_media_dir=media_dir(project),
         allow_layout_edits=allow_layout_edits,
         allow_web_search=allow_web_search,
         web_search=web_search_callable,
+        web_image_search=web_image_search_callable,
     )
     return AgentToolset(context)
 
@@ -1076,13 +1170,23 @@ def _run_agent_with_tools(
     *,
     progress_callback: Optional[Callable[[str, Optional[str]], None]] = None,
     permissions: Optional[Dict[str, bool]] = None,
+    tool_limit: Optional[int] = None,
+    agent_mode: Optional[str] = None,
 ) -> Tuple[str, bool, List[Dict[str, Any]]]:
     toolkit = _build_agent_toolset(project, permissions=permissions)
     conversation = list(messages)
     layout_changed = False
     trace: List[Dict[str, Any]] = []
-    remaining_calls: Optional[int] = MAX_AGENT_TOOL_CALLS if MAX_AGENT_TOOL_CALLS > 0 else None
+    global_cap: Optional[int] = MAX_AGENT_TOOL_CALLS if MAX_AGENT_TOOL_CALLS > 0 else None
+    if tool_limit is None:
+        effective_limit = global_cap
+    elif global_cap is None:
+        effective_limit = tool_limit
+    else:
+        effective_limit = min(tool_limit, global_cap)
+    remaining_calls: Optional[int] = effective_limit
     last_progress_detail: Optional[str] = None
+    mode_label = (agent_mode or "standard").strip() or "standard"
 
     def emit_progress(status: str, detail: Optional[str]) -> None:
         nonlocal last_progress_detail
@@ -1096,13 +1200,25 @@ def _run_agent_with_tools(
         last_progress_detail = text
         progress_callback(status, text)
 
+    if remaining_calls is None:
+        start_detail = f"{mode_label} mode · no tool cap"
+    else:
+        start_detail = f"{mode_label} mode · up to {remaining_calls} tool call(s)"
+    trace.append({"kind": "thought", "message": f"Starting in {start_detail}."})
+    emit_progress("starting", start_detail)
+
     while True:
         if remaining_calls is not None and remaining_calls <= 0:
-            trace.append({"kind": "limit", "message": "Reached the maximum number of agent tool calls."})
+            limit_message = (
+                f"Reached the agent tool budget of {effective_limit} call(s)."
+                if effective_limit is not None
+                else "Reached the configured agent tool budget."
+            )
+            trace.append({"kind": "limit", "message": limit_message})
             if progress_callback:
-                progress_callback("limit", "Reached agent tool limit before finishing.")
+                progress_callback("limit", limit_message)
             return (
-                "I reached the tool usage limit before finishing the task. Summarize the remaining work for the user.",
+                "I hit the configured tool budget before finishing. Summarize what remains or re-run with a higher limit.",
                 layout_changed,
                 trace,
             )
@@ -1213,6 +1329,8 @@ def _generate_chat_reply(
     project: str,
     allow_tools: bool = False,
     tool_permissions: Optional[Dict[str, bool]] = None,
+    tool_limit: Optional[int] = None,
+    agent_mode: Optional[str] = None,
     progress_callback: Optional[Callable[[str, Optional[str]], None]] = None,
 ) -> Tuple[str, bool, List[Dict[str, Any]]]:
     if not _dashscope_configured():
@@ -1225,6 +1343,8 @@ def _generate_chat_reply(
             project,
             progress_callback=progress_callback,
             permissions=tool_permissions,
+            tool_limit=tool_limit,
+            agent_mode=agent_mode,
         )
         return reply, layout_changed, trace
 
@@ -1498,10 +1618,24 @@ def chat_assistant():
     project = sanitize_project(payload.get("project") or DEFAULT_PROJECT)
     message = (payload.get("message") or "").strip()
     attachments_raw = payload.get("attachments") or []
-    agent_mode = bool(payload.get("agentMode"))
+    agent_mode_enabled = bool(payload.get("agentMode"))
     permissions_payload = payload.get("agentPermissions") or {}
     allow_layout_edits = bool(permissions_payload.get("allowLayoutEdits"))
-    allow_web_search = agent_mode and bool(permissions_payload.get("allowWebSearch"))
+    allow_web_search = agent_mode_enabled and bool(permissions_payload.get("allowWebSearch"))
+    mode_setting = (
+        payload.get("agentModePreset")
+        or payload.get("agentModeProfile")
+        or payload.get("agentModeSetting")
+        or DEFAULT_AGENT_TOOL_MODE
+    )
+    mode_label, requested_tool_limit = _resolve_agent_tool_budget(mode_setting, payload.get("agentToolLimit"))
+    global_tool_cap = MAX_AGENT_TOOL_CALLS if MAX_AGENT_TOOL_CALLS > 0 else None
+    if requested_tool_limit is None:
+        effective_tool_limit = global_tool_cap
+    elif global_tool_cap is None:
+        effective_tool_limit = requested_tool_limit
+    else:
+        effective_tool_limit = min(requested_tool_limit, global_tool_cap)
     progress_token = (payload.get("progressToken") or "").strip() or None
     _init_agent_progress(progress_token, "starting", "Contacting the assistant…")
 
@@ -1522,13 +1656,13 @@ def chat_assistant():
 
     agent_snapshot = None
     client_snapshot = payload.get("agentSnapshot")
-    if agent_mode:
+    if agent_mode_enabled:
         if isinstance(client_snapshot, dict):
             agent_snapshot = client_snapshot
         else:
             agent_snapshot = _build_project_snapshot(project)
     layout = agent_snapshot["layout"] if agent_snapshot else load_layout(project)
-    allow_tools = agent_mode
+    allow_tools = agent_mode_enabled
     tool_permissions = {
         "allow_layout_edits": allow_layout_edits,
         "allow_web_search": allow_web_search,
@@ -1543,6 +1677,8 @@ def chat_assistant():
         project=project,
         allow_tools=allow_tools,
         tool_permissions=tool_permissions,
+        tool_limit=effective_tool_limit if allow_tools else None,
+        agent_mode=mode_label if allow_tools else None,
         progress_callback=_progress,
     )
     if layout_updated:
@@ -1571,6 +1707,10 @@ def chat_assistant():
             },
             "progressToken": progress_token,
             "tokenStats": stats,
+            "agentOptions": {
+                "mode": mode_label,
+                "toolLimit": effective_tool_limit,
+            },
         }
     )
 
