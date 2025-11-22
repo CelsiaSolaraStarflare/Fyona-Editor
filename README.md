@@ -139,6 +139,8 @@ The application will be available at `http://localhost:5001`.
 4. The agent will analyze your layout and make suggestions or modifications
 5. When Agent Mode is enabled you can toggle **Allow layout edits** inside the chat panel. Turning it on lets Fyona call built-in tools to read or overwrite `layout.json`, or to run structured terminal commands until the task is complete.
 
+When Agent Mode is active, the assistant now iteratively replays your request: it issues precise terminal commands, re-reads the layout (or runs `status`/`echo`), restates what still needs work, and continues issuing edits until the design matches your description or it explains what remains. Each pass arrives with the latest plan, so the agent reanalyzes the problem space without you needing to resend the prompt manually. The run-mode dropdown/tool-limit counter has been removed because Fyona now always auto-continues until the layout satisfies your prompt.
+
 ### Terminal Commands
 
 Open the floating terminal (or type `/terminal` in chat) to run scripted layout tweaks. Besides the original `pages`, `echo`, and `add` verbs, the terminal now understands:
@@ -147,6 +149,16 @@ Open the floating terminal (or type `/terminal` in chat) to run scripted layout 
 - `move hero_title --to (128,96)`, `resize 3 --size 320x180`, `delete hero_image` for block edits
 - `duplicate hero_title --offset (32,32)`, `newpage "Features" --from 2`, `renamepage 3 "Workflow"`
 - `activate 4`, `deletepage 5`, and `grid --columns 8 --gutter 24 --snap on` for project-wide adjustments
+The agent is explicitly taught these terminal commands, so when it runs `run_terminal_command` it can carry out the relevant operation and then re-evaluate the layout before the next step. Use the floating terminal yourself to mirror what the assistant is doing.
+
+Full command set:
+- `help` – list available terminal verbs
+- `status` – report project, grid, palette, and typography details
+- `pages` / `blocks` / `echo` – inspect pages, blocks, and content previews
+- `move` / `resize` / `duplicate` / `delete` / `remove` – modify blocks
+- `add` / `edit` / `content` / `append` / `prepend` – insert or rewrite copy
+- `newpage` / `renamepage` / `deletepage` / `activate` – manage pages
+- `grid` – adjust the document grid system
 
 Every command returns a short explanation plus updates the canvas automatically when a change is made, making repetitive layout chores much faster.
 

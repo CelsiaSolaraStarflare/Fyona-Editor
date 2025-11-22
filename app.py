@@ -18,12 +18,11 @@ from uuid import uuid4
 from flask import Flask, jsonify, render_template, request, send_file, send_from_directory, url_for
 from werkzeug.utils import secure_filename
 
-from agent_tools import AgentToolContext, AgentToolError, AgentToolset
 from export_formats import ExportFormatError, export_layout
 from fonts import get_font, list_fonts
 from pdf_export import PdfExportError
 from raster_export import rasterize_layout
-from terminal import TerminalCommandError, TerminalProcessor
+from terminal import TerminalCommandError, TerminalProcessor, TERMINAL_COMMANDS
 
 if TYPE_CHECKING:  # pragma: no cover
     from openai import OpenAI
@@ -68,6 +67,7 @@ AGENT_TOOL_BUDGET_PRESETS = {
     "deep": None,
     "unbounded": None,
 }
+TERMINAL_COMMAND_LIST = ", ".join(TERMINAL_COMMANDS)
 AGENT_TOOL_BUDGET_MIN = 2
 AGENT_TOOL_BUDGET_MAX = 64
 DEFAULT_DASHSCOPE_BASE_URL = "https://dashscope.aliyuncs.com/compatible-mode/v1"
@@ -99,7 +99,12 @@ AGENT_SYSTEM_PROMPT = (
     "You are Fyona, an editorial design assistant that helps plan and refine magazine layouts. Use the user's "
     "message plus any attachments, the project directory listing, and the current layout JSON to reason about "
     "grid, typography, and composition. When you propose changes, reference block IDs, page names, or coordinates "
-    "so the developer can implement them. If context is missing, ask clarifying questions. Respond in Markdown."
+    "so the developer can implement them. Prefer editing through terminal commands so the assistant stays aligned "
+    f"with the available controls: {TERMINAL_COMMAND_LIST}. Run highly specific commands via the `run_terminal_command` "
+    "tool and keep an audit trail of what you executed. After each batch of commands, re-read the layout or run status "
+    "and echo/paging checks, restate the user's request in your reasoning, and plan the next command to resolve any "
+    "remaining issues until the layout either matches the description or you clearly explain why no further changes "
+    "are possible. If context is missing, ask clarifying questions. Respond in Markdown."
 )
 _openai_client: Optional["OpenAI"] = None
 
@@ -965,21 +970,72 @@ def _gather_agent_files(root: Path) -> List[Dict[str, Any]]:
     return collected
 
 
-def _build_project_snapshot(project: str) -> Dict[str, Any]:
+def _build_project_snapshot(project: str, agent_mode: str = "document") -> Dict[str, Any]:
     root = project_dir(project)
     tree_text, stats = _build_directory_tree(root)
     layout = load_layout(project)
-    warnings = _collect_layout_warnings(layout)
     files = _gather_agent_files(root)
-    return {
-        "project": project,
-        "tree": tree_text,
-        "filesIndexed": stats["files"],
-        "directoriesIndexed": stats["dirs"],
-        "files": files,
-        "layout": layout,
-        "warnings": warnings,
-    }
+
+    # Depending on the agent mode, include either the entire layout or just the active page
+    if agent_mode == "page":
+        # Only include the active page content
+        active_page_id = layout.get("activePageId")
+        pages = layout.get("pages") or []
+
+        # Find the active page
+        active_page = None
+        for page in pages:
+            if page.get("id") == active_page_id:
+                active_page = page
+                break
+
+        # If no active page is set, use the first page
+        if not active_page and pages:
+            active_page = pages[0]
+
+        # Create a simplified layout snapshot containing only the active page
+        page_layout = {
+            "columns": layout.get("columns"),
+            "baseline": layout.get("baseline"),
+            "gutter": layout.get("gutter"),
+            "snap": layout.get("snap"),
+            "zoom": layout.get("zoom"),
+            "orientation": layout.get("orientation"),
+            "format": layout.get("format"),
+            "dimensions": layout.get("dimensions"),
+            "pages": [active_page] if active_page else [],
+            "activePageId": active_page.get("id") if active_page else None,
+            "activePageName": active_page.get("name") if active_page else "No Active Page",
+            "totalPages": len(pages),
+            "pageMode": True,  # Flag to indicate this is page-mode data
+        }
+
+        # Get warnings only for the active page
+        warnings = _collect_layout_warnings({"pages": [active_page] if active_page else []}) if active_page else []
+
+        return {
+            "project": project,
+            "tree": tree_text,
+            "filesIndexed": stats["files"],
+            "directoriesIndexed": stats["dirs"],
+            "files": files,
+            "layout": page_layout,
+            "warnings": warnings,
+            "agentMode": "page",
+        }
+    else:
+        # Original behavior: include the entire layout
+        warnings = _collect_layout_warnings(layout)
+        return {
+            "project": project,
+            "tree": tree_text,
+            "filesIndexed": stats["files"],
+            "directoriesIndexed": stats["dirs"],
+            "files": files,
+            "layout": layout,
+            "warnings": warnings,
+            "agentMode": "document",
+        }
 
 
 def _dashscope_configured() -> bool:
@@ -1192,181 +1248,6 @@ def _call_qwen_completion(messages: List[Dict[str, Any]]) -> str:
     return content or "I could not find anything helpful to share. Try rephrasing your request."
 
 
-def _build_agent_toolset(project: str, permissions: Optional[Dict[str, bool]] = None) -> AgentToolset:
-    def _terminal_factory(layout: Dict[str, Any]) -> TerminalProcessor:
-        return TerminalProcessor(project=project, layout=layout, block_id_factory=_generate_block_id)
-
-    perm_payload = permissions or {}
-    allow_layout_edits = bool(perm_payload.get("allow_layout_edits"))
-    allow_web_search = bool(perm_payload.get("allow_web_search") and _bing_search_available())
-
-    web_search_callable: Optional[Callable[[str, int], List[Dict[str, str]]]] = None
-    web_image_search_callable: Optional[Callable[[str, int], List[Dict[str, Any]]]] = None
-    if allow_web_search:
-        def _web_search_adapter(query: str, count: int) -> List[Dict[str, str]]:
-            return _perform_bing_web_search(query, count=count)
-
-        web_search_callable = _web_search_adapter
-        def _web_image_search_adapter(query: str, count: int) -> List[Dict[str, Any]]:
-            return _perform_bing_image_search(query, count=count)
-
-        web_image_search_callable = _web_image_search_adapter
-
-    context = AgentToolContext(
-        project=project,
-        load_layout=load_layout,
-        save_layout=save_layout,
-        terminal_factory=_terminal_factory,
-        project_root=project_dir(project),
-        project_media_dir=media_dir(project),
-        allow_layout_edits=allow_layout_edits,
-        allow_web_search=allow_web_search,
-        web_search=web_search_callable,
-        web_image_search=web_image_search_callable,
-    )
-    return AgentToolset(context)
-
-
-def _run_agent_with_tools(
-    messages: List[Dict[str, Any]],
-    project: str,
-    *,
-    progress_callback: Optional[Callable[[str, Optional[str]], None]] = None,
-    permissions: Optional[Dict[str, bool]] = None,
-    tool_limit: Optional[int] = None,
-    agent_mode: Optional[str] = None,
-) -> Tuple[str, bool, List[Dict[str, Any]]]:
-    toolkit = _build_agent_toolset(project, permissions=permissions)
-    conversation = list(messages)
-    layout_changed = False
-    trace: List[Dict[str, Any]] = []
-    global_cap: Optional[int] = MAX_AGENT_TOOL_CALLS if MAX_AGENT_TOOL_CALLS > 0 else None
-    if tool_limit is None:
-        effective_limit = global_cap
-    elif global_cap is None:
-        effective_limit = tool_limit
-    else:
-        effective_limit = min(tool_limit, global_cap)
-    remaining_calls: Optional[int] = effective_limit
-    last_progress_detail: Optional[str] = None
-    mode_label = (agent_mode or "standard").strip() or "standard"
-
-    def emit_progress(status: str, detail: Optional[str]) -> None:
-        nonlocal last_progress_detail
-        if not progress_callback:
-            return
-        text = (detail or status or "").strip()
-        if not text:
-            text = status or "working"
-        if text == last_progress_detail:
-            return
-        last_progress_detail = text
-        progress_callback(status, text)
-
-    if remaining_calls is None:
-        start_detail = f"{mode_label} mode · no tool cap"
-    else:
-        start_detail = f"{mode_label} mode · up to {remaining_calls} tool call(s)"
-    trace.append({"kind": "thought", "message": f"Starting in {start_detail}."})
-    emit_progress("starting", start_detail)
-
-    while True:
-        if remaining_calls is not None and remaining_calls <= 0:
-            limit_message = (
-                f"Reached the agent tool budget of {effective_limit} call(s)."
-                if effective_limit is not None
-                else "Reached the configured agent tool budget."
-            )
-            trace.append({"kind": "limit", "message": limit_message})
-            if progress_callback:
-                progress_callback("limit", limit_message)
-            return (
-                "I hit the configured tool budget before finishing. Summarize what remains or re-run with a higher limit.",
-                layout_changed,
-                trace,
-            )
-
-        if remaining_calls is None:
-            emit_progress("thinking", "Analyzing next step (unlimited tool calls)…")
-        else:
-            emit_progress("thinking", f"Analyzing next step ({remaining_calls} tool call(s) remaining)…")
-        response_message = _request_qwen_message(conversation, tools=toolkit.specs)
-        if not response_message:
-            trace.append({"kind": "error", "message": "Assistant response was empty."})
-            emit_progress("error", "Assistant returned an empty response.")
-            return (
-                "I could not contact the assistant to keep running tools. Please try again.",
-                layout_changed,
-                trace,
-            )
-
-        payload: Dict[str, Any] = {
-            "role": getattr(response_message, "role", "assistant"),
-            "content": _serialize_message_content(getattr(response_message, "content", "")),
-        }
-        tool_calls = _serialize_tool_calls(getattr(response_message, "tool_calls", None))
-        if tool_calls:
-            payload["tool_calls"] = tool_calls
-        conversation.append(payload)
-
-        message_text = _message_content_to_text(getattr(response_message, "content", ""))
-        if tool_calls:
-            if message_text:
-                detail = message_text.strip()
-                trace.append({"kind": "thought", "message": detail})
-                emit_progress("thinking", detail[:280])
-            for call in tool_calls:
-                function = call.get("function") or {}
-                name = function.get("name") or ""
-                arguments = function.get("arguments") or "{}"
-                entry: Dict[str, Any] = {
-                    "kind": "tool",
-                    "name": name or "unknown_tool",
-                    "arguments": arguments,
-                }
-                try:
-                    arg_preview = (arguments or "{}")[:200]
-                    emit_progress("tool", f"Running {name or 'tool'} with args {arg_preview or '{}'}")
-                    result = toolkit.invoke(name, arguments)
-                    tool_output = result.content
-                    layout_changed = layout_changed or result.layout_changed
-                    entry["status"] = "ok"
-                    entry["result"] = tool_output
-                    emit_progress("tool", f"Finished {name or 'tool'}.")
-                except AgentToolError as exc:
-                    tool_output = f"Tool error: {exc}"
-                    entry["status"] = "error"
-                    entry["result"] = tool_output
-                    emit_progress("error", tool_output[:240])
-                except Exception:  # pragma: no cover - defensive guard
-                    app.logger.exception("agent tool invocation failed")
-                    tool_output = "Tool error: unexpected failure while running this command."
-                    entry["status"] = "error"
-                    entry["result"] = tool_output
-                    emit_progress("error", tool_output[:240])
-                trace.append(entry)
-                conversation.append(
-                    {
-                        "role": "tool",
-                        "tool_call_id": call.get("id") or "",
-                        "name": name,
-                        "content": tool_output,
-                    }
-                )
-                if remaining_calls is not None:
-                    remaining_calls -= 1
-            continue
-
-        if message_text:
-            trace.append({"kind": "final", "message": message_text})
-            emit_progress("complete", "Agent finished composing the reply.")
-            return message_text, layout_changed, trace
-
-        trace.append({"kind": "thought", "message": "Assistant replied without content, continuing…"})
-        if remaining_calls is not None:
-            remaining_calls -= 1
-
-
 def _evaluate_current_state(project: str, agent_snapshot: Optional[Dict[str, Any]]) -> str:
     """
     Use the reasoning model to evaluate the current layout state and determine
@@ -1391,7 +1272,8 @@ def _evaluate_current_state(project: str, agent_snapshot: Optional[Dict[str, Any
     if agent_snapshot:
         evaluation_snapshot = agent_snapshot
     else:
-        evaluation_snapshot = _build_project_snapshot(project)
+        # If no agent snapshot is provided, default to document mode
+        evaluation_snapshot = _build_project_snapshot(project, "document")
 
     # Build messages for evaluation
     messages = _build_qwen_messages(evaluation_prompt, [], evaluation_snapshot)
@@ -1453,19 +1335,18 @@ def _generate_chat_reply(
     tool_permissions: Optional[Dict[str, bool]] = None,
     tool_limit: Optional[int] = None,
     agent_mode: Optional[str] = None,
+    agent_view_mode: str = "document",
     progress_callback: Optional[Callable[[str, Optional[str]], None]] = None,
 ) -> Tuple[str, bool, List[Dict[str, Any]]]:
     if not _dashscope_configured():
         return _fallback_chat_reply(message, attachments, agent_snapshot), False, []
 
     messages = _build_qwen_messages(message or "", attachments, agent_snapshot)
-    if allow_tools:
-        reply, layout_changed, trace = _run_agent_with_tools(
+    if allow_tools and tool_permissions and tool_permissions.get("allow_layout_edits"):
+        reply, layout_changed, trace = _run_agent_with_terminal(
             messages,
             project,
             progress_callback=progress_callback,
-            permissions=tool_permissions,
-            tool_limit=tool_limit,
             agent_mode=agent_mode,
         )
         return reply, layout_changed, trace
@@ -1741,29 +1622,6 @@ def chat_assistant():
     message = (payload.get("message") or "").strip()
     attachments_raw = payload.get("attachments") or []
     agent_mode_enabled = bool(payload.get("agentMode"))
-    permissions_payload = payload.get("agentPermissions") or {}
-    allow_layout_edits = bool(permissions_payload.get("allowLayoutEdits"))
-    allow_web_search = agent_mode_enabled and bool(permissions_payload.get("allowWebSearch"))
-    mode_setting = (
-        payload.get("agentModePreset")
-        or payload.get("agentModeProfile")
-        or payload.get("agentModeSetting")
-        or DEFAULT_AGENT_TOOL_MODE
-    )
-    mode_label, requested_tool_limit = _resolve_agent_tool_budget(mode_setting, payload.get("agentToolLimit"))
-    global_tool_cap = MAX_AGENT_TOOL_CALLS if MAX_AGENT_TOOL_CALLS > 0 else None
-    if requested_tool_limit is None:
-        effective_tool_limit = global_tool_cap
-    elif global_tool_cap is None:
-        effective_tool_limit = requested_tool_limit
-    else:
-        effective_tool_limit = min(requested_tool_limit, global_tool_cap)
-    progress_token = (payload.get("progressToken") or "").strip() or None
-    auto_continue = bool(payload.get("autoContinue", False))
-    max_iterations = int(payload.get("maxIterations", 10))  # Default to 10 iterations to prevent infinite loops
-    iteration_count = 0
-
-    _init_agent_progress(progress_token, "starting", "Contacting the assistant…")
 
     attachments: List[Dict[str, Any]] = []
     for item in attachments_raw:
@@ -1782,218 +1640,53 @@ def chat_assistant():
 
     agent_snapshot = None
     client_snapshot = payload.get("agentSnapshot")
+    # Determine the agent view mode - whether to show entire document or just the active page
+    agent_view_mode = (payload.get("agentViewMode") or "document").lower()
     if agent_mode_enabled:
         if isinstance(client_snapshot, dict):
             agent_snapshot = client_snapshot
         else:
-            agent_snapshot = _build_project_snapshot(project)
+            agent_snapshot = _build_project_snapshot(project, agent_view_mode)
 
-    allow_tools = agent_mode_enabled
-    tool_permissions = {
-        "allow_layout_edits": allow_layout_edits,
-        "allow_web_search": allow_web_search,
-    }
-    def _progress(status: str, detail: Optional[str] = None) -> None:
-        _update_agent_progress(progress_token, status=status, detail=detail or status)
-
-    all_replies = []
-    all_traces = []
-    final_layout_updated = False
-
-    # Auto-continuing loop
-    original_attachments = list(attachments)  # Preserve original attachments
-
-    while iteration_count < max_iterations:
-        iteration_count += 1
-        layout = agent_snapshot["layout"] if agent_snapshot else load_layout(project)
-
-        # Prepare attachments for this iteration
-        current_attachments = list(original_attachments)  # Start with original attachments
-
-        # Get canvas preview to add to attachments if auto-continuing
-        if auto_continue and iteration_count > 1:  # Add canvas attachment from 2nd iteration onward
-            try:
-                canvas_attachment = _render_canvas_preview(project)
-                # Add canvas as attachment for subsequent iterations
-                if canvas_attachment and canvas_attachment.get("dataUrl"):
-                    current_attachments.append({
-                        "type": "image/png",
-                        "label": f"Canvas Preview - Iteration {iteration_count}",
-                        "dataUrl": canvas_attachment.get("dataUrl"),
-                        "meta": {
-                            "iteration": iteration_count,
-                            "page": canvas_attachment.get("label", "current page"),
-                            "width": canvas_attachment.get("width"),
-                            "height": canvas_attachment.get("height")
-                        }
-                    })
-            except Exception as e:
-                app.logger.warning(f"Could not capture canvas preview for auto-continue iteration {iteration_count}: {e}")
-
-        reply, layout_updated, agent_trace = _generate_chat_reply(
-            message if iteration_count == 1 else "",  # Only use original message in first iteration
-            current_attachments,  # Use current attachments including canvas preview
-            agent_snapshot,
-            project=project,
-            allow_tools=allow_tools,
-            tool_permissions=tool_permissions,
-            tool_limit=effective_tool_limit if allow_tools else None,
-            agent_mode=mode_label if allow_tools else None,
-            progress_callback=_progress,
-        )
-
-        all_replies.append(reply)
-        all_traces.extend(agent_trace)
-        final_layout_updated = final_layout_updated or layout_updated
-
-        # Initialize reasoning_output variable
-        reasoning_output = ""
-
-        # Use reasoning model to evaluate if the current layout is decent
-        # This is a more sophisticated check than just looking for completion phrases
-        should_stop = False
-
-        if auto_continue and iteration_count < max_iterations:
-            # After the agent's action, use reasoning to evaluate the current state
-            try:
-                reasoning_output = _evaluate_current_state(project, agent_snapshot)
-                _update_agent_progress(progress_token, status="reasoning", detail=f"Evaluating current state after iteration {iteration_count}...")
-
-                # Add reasoning output to traces
-                if reasoning_output:
-                    all_traces.append({
-                        "kind": "reasoning_evaluation",
-                        "iteration": iteration_count,
-                        "message": f"Reasoning evaluation after iteration {iteration_count}: {reasoning_output}"
-                    })
-
-                # If the reasoning determines the layout is satisfactory, stop
-                reasoning_lower = reasoning_output.lower() if reasoning_output else ""
-                satisfaction_indicators = [
-                    "satisfactory", "satisfactory layout", "good", "well", "adequate", "complete",
-                    "finished", "done", "ready", "acceptable", "meets requirements", "looks good",
-                    "layout is good", "layout is ready", "layout is complete", "layout is finished",
-                    "well designed", "properly arranged", "appropriately styled", "visually appealing"
-                ]
-
-                # Negative indicators that suggest more work is needed
-                improvement_indicators = [
-                    "needs work", "needs improvement", "improvement needed", "more work needed",
-                    "not sufficient", "not adequate", "incomplete", "missing", "lacking",
-                    "should add", "could add", "would benefit", "requires more", "not finished",
-                    "not done", "could improve", "needs refinement", "can be better"
-                ]
-
-                positive_found = any(indicator in reasoning_lower for indicator in satisfaction_indicators)
-                negative_found = any(indicator in reasoning_lower for indicator in improvement_indicators)
-
-                # Stop if satisfied and no negative indicators, or if agent explicitly said done
-                agent_done = False
-                reply_lower = reply.lower() if reply else ""
-                completion_indicators = [
-                    "complete", "completed", "finished", "done", "task completed", "all done",
-                    "all tasks completed", "work is done", "finished work", "finished the task"
-                ]
-                agent_done = any(indicator in reply_lower for indicator in completion_indicators)
-
-                should_stop = (positive_found and not negative_found) or agent_done
-
-            except Exception as e:
-                app.logger.warning(f"Reasoning evaluation failed: {e}")
-                # Fallback to basic completion detection
-                reply_lower = reply.lower() if reply else ""
-                completion_indicators = [
-                    "complete", "completed", "finished", "done", "task completed", "all done",
-                    "all tasks completed", "work is done", "finished work", "finished the task"
-                ]
-                should_stop = any(indicator in reply_lower for indicator in completion_indicators)
-        else:
-            # Fallback for when not auto-continuing or at max iterations
-            reply_lower = reply.lower() if reply else ""
-            completion_indicators = [
-                "complete", "completed", "finished", "done", "task completed", "all done",
-                "all tasks completed", "work is done", "finished work", "finished the task"
-            ]
-            should_stop = any(indicator in reply_lower for indicator in completion_indicators)
-
-        # Update agent snapshot for next iteration
-        if layout_updated:
-            agent_snapshot = _build_project_snapshot(project)
-
-        # If not auto-continuing or agent indicates completion or max iterations reached, break
-        if not auto_continue or should_stop or iteration_count >= max_iterations:
-            break
-
-        # Reset progress for next iteration
-        _update_agent_progress(progress_token, status="continuing", detail=f"Starting iteration {iteration_count + 1}...")
-
-        # Add a small delay to prevent overwhelming the API
-        import time
-        time.sleep(0.5)
-
-    # Combine all replies and add summary if auto-continuing
-    final_reply = "\n\n---\n\n".join(all_replies) if len(all_replies) > 1 else all_replies[0] if all_replies else ""
-
-    if auto_continue and iteration_count > 1:
-        # Add a summary of the auto-continuation process
-        summary = f"\n\n--- Auto-Continuation Summary ---\n"
-        summary += f"Total iterations completed: {iteration_count}\n"
-        if final_layout_updated:
-            summary += "Layout was modified during the process.\n"
-        else:
-            summary += "Layout was not modified during the process.\n"
-        summary += f"The agent automatically evaluated the layout after each iteration and continued until the design was satisfactory.\n"
-
-        # Add common follow-up suggestions
-        followup_prompt = (
-            "Based on the current layout state, provide 1-2 brief suggestions for potential improvements "
-            "or next steps that could be taken, if any."
-        )
-
-        try:
-            followup_suggestions = _evaluate_current_state(project, agent_snapshot)
-            if followup_suggestions:
-                summary += f"\nSuggested follow-up actions:\n{followup_suggestions}"
-        except:
-            pass  # If follow-up evaluation fails, continue without suggestions
-
-        final_reply = summary + "\n\n" + final_reply
-
-    # Update final snapshot
-    if final_layout_updated:
-        agent_snapshot = _build_project_snapshot(project)
+    # Simple chat functionality without advanced tools
+    reply, layout_updated, agent_trace = _generate_chat_reply(
+        message,
+        attachments,
+        agent_snapshot,
+        project=project,
+    )
 
     layout = agent_snapshot["layout"] if agent_snapshot else load_layout(project)
     pages = layout.get("pages") or []
     total_blocks = sum(len(page.get("blocks", [])) for page in pages)
     if not total_blocks:
         total_blocks = len(layout.get("blocks", []))
-    tokens_used, image_bytes = _estimate_chat_token_usage(message, attachments, final_reply or "")
+    tokens_used, image_bytes = _estimate_chat_token_usage(message, attachments, reply)
     _record_token_usage(tokens_used, image_bytes)
     stats = _get_token_stats()
-    _update_agent_progress(progress_token, status="complete", detail=f"Auto-continuation completed after {iteration_count} iteration(s).", done=True)
+
     return jsonify(
         {
             "success": True,
-            "reply": final_reply,
+            "reply": reply,
             "agentSnapshot": agent_snapshot,
-            "agentTrace": all_traces,
+            "agentTrace": agent_trace,
             "actions": {
-                "layoutUpdated": final_layout_updated,
-                "iterations": iteration_count,
-                "autoContinue": auto_continue,
+                "layoutUpdated": layout_updated,
+                "iterations": 1,  # Simplified response
+                "autoContinue": False,  # No auto-continuation
             },
             "summary": {
                 "project": project,
                 "blocks": total_blocks,
             },
-            "progressToken": progress_token,
+            "progressToken": None,
             "tokenStats": stats,
             "agentOptions": {
-                "mode": mode_label,
-                "toolLimit": effective_tool_limit,
-                "autoContinue": auto_continue,
-                "maxIterations": max_iterations,
+                "mode": "chat",  # Simplified mode
+                "toolLimit": 0,  # No tools
+                "autoContinue": False,  # No auto-continuation
+                "maxIterations": 1,  # Single iteration
             },
         }
     )
@@ -2013,7 +1706,8 @@ def chat_canvas_attachment():
 @app.route("/api/chat/agent-snapshot", methods=["GET"])
 def chat_agent_snapshot():
     project = sanitize_project(request.args.get("project") or DEFAULT_PROJECT)
-    snapshot = _build_project_snapshot(project)
+    agent_view_mode = (request.args.get("agentViewMode") or "document").lower()
+    snapshot = _build_project_snapshot(project, agent_view_mode)
     return jsonify({"success": True, "snapshot": snapshot})
 
 

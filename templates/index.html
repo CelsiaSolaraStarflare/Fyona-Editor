@@ -244,10 +244,13 @@
                                 </label>
                                 <div class="chat-agent-mode">
                                     <div class="chat-agent-mode__row">
-                                        <span class="chat-agent-mode__label">Run mode</span>
-                                        <select id="chat-agent-mode" class="chat-agent-mode__select" aria-label="Agent run mode"></select>
+                                        <span class="chat-agent-mode__label">View mode</span>
+                                        <select id="chat-agent-view-mode" class="chat-agent-mode__select" aria-label="Agent view mode">
+                                            <option value="document">Document (all pages)</option>
+                                            <option value="page">Page (active page only)</option>
+                                        </select>
                                     </div>
-                                    <p class="chat-agent-mode__hint" id="chat-agent-mode-hint">Balanced: generous tool use with basic edits.</p>
+                                    <p class="chat-agent-mode__hint">Choose what content the agent can access and modify.</p>
                                 </div>
                             </div>
                         </div>

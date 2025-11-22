@@ -63,24 +63,15 @@ document.addEventListener('DOMContentLoaded', () => {
         chatAgentAllowWeb: document.getElementById('chat-agent-allow-web'),
         chatAgentPermissionSummary: document.getElementById('chat-agent-permission-summary'),
         chatAgentOptionsToggle: document.getElementById('chat-agent-options-toggle'),
+        chatAgentViewMode: document.getElementById('chat-agent-view-mode'),
         chatResizeHandle: document.getElementById('chat-resize-handle'),
         chatTokenStats: document.getElementById('chat-token-stats'),
-        chatAgentMode: document.getElementById('chat-agent-mode'),
-        chatAgentModeHint: document.getElementById('chat-agent-mode-hint'),
     };
 
     const fyonaConfig = window.FYONA_CONFIG || {};
 
     const params = new URLSearchParams(window.location.search);
     const initialProject = (params.get('project') || '').trim() || 'default';
-
-    const AGENT_TOOL_MODES = [
-        { id: 'quick', label: 'Quick scan', description: 'Fast pass with no tool cap.', toolLimit: null },
-        { id: 'balanced', label: 'Builder', description: 'Balanced edits with no tool cap.', toolLimit: null },
-        { id: 'deep', label: 'Deep dive', description: 'Aggressive planning with no tool cap.', toolLimit: null },
-        { id: 'unbounded', label: 'Autopilot', description: 'No cap; let Fyona keep calling tools.', toolLimit: null },
-    ];
-    const DEFAULT_AGENT_MODE = 'unbounded';
 
     const state = {
         project: initialProject,
@@ -111,8 +102,7 @@ document.addEventListener('DOMContentLoaded', () => {
             agentSnapshot: null,
             agentCanEdit: false,
             agentAllowWeb: false,
-            agentMode: DEFAULT_AGENT_MODE,
-            agentToolLimit: null,
+            agentViewMode: 'document', // Default to document mode
             optionsOpen: false,
             bingSearchAvailable: !!fyonaConfig.bingSearchAvailable,
             panelSize: null,
@@ -633,7 +623,10 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!response.ok) throw new Error('Failed to fetch layout');
             const layout = await response.json();
 
-            state.project = layout.project || project;
+            const newProjectName = layout.project || project;
+            const projectChanged = previousProject && previousProject !== newProjectName;
+            const agentWasEnabled = state.chat.agentEnabled;
+            state.project = newProjectName;
             if (els.projectSelect) {
                 const hasOption = Array.from(els.projectSelect.options).some((opt) => opt.value === state.project);
                 if (!hasOption) {
@@ -672,6 +665,14 @@ document.addEventListener('DOMContentLoaded', () => {
             updateCanvasSizeLabel();
             updateChatProjectStatus();
             renderDesignIntent();
+            if (projectChanged) {
+                disableAgentMode({ silent: true });
+                if (agentWasEnabled) {
+                    showToast(
+                        `Agent Mode reset after switching to “${state.project}”. Re-enable it to let Fyona inspect this layout.`,
+                    );
+                }
+            }
         } catch (error) {
             console.error(error);
             showToast('Unable to load layout', true);
@@ -2070,95 +2071,8 @@ document.addEventListener('DOMContentLoaded', () => {
         }
     }
 
-    function normalizeToolLimit(limit) {
-        if (limit === undefined) return undefined;
-        if (limit === null) return null;
-        const numeric = Number(limit);
-        if (!Number.isFinite(numeric) || numeric <= 0) {
-            return null;
-        }
-        return Math.max(1, Math.round(numeric));
-    }
-
-    function getAgentModeOption(modeId) {
-        const key = typeof modeId === 'string' ? modeId.trim().toLowerCase() : '';
-        return AGENT_TOOL_MODES.find((mode) => mode.id === key) || null;
-    }
-
-    function resolveAgentToolLimit(modeId) {
-        const option = getAgentModeOption(modeId) || getAgentModeOption(DEFAULT_AGENT_MODE);
-        if (!option) return null;
-        return normalizeToolLimit(option.toolLimit);
-    }
-
-    function getActiveAgentToolLimit() {
-        return null;
-    }
-
-    function formatToolLimitLabel(limit) {
-        const normalized = normalizeToolLimit(limit);
-        if (normalized === null) return 'no cap';
-        if (!Number.isFinite(normalized)) return '';
-        return normalized === 1 ? '1 tool call' : `${normalized} tool calls`;
-    }
-
-    function formatAgentModeLabel() {
-        const option = getAgentModeOption(state.chat.agentMode);
-        const limit = getActiveAgentToolLimit();
-        const modeName = option?.label || 'Balanced';
-        const limitText = limit === null ? 'no tool cap' : `${limit} tool call${limit === 1 ? '' : 's'}`;
-        return `Mode: ${modeName} (${limitText})`;
-    }
-
-    function updateAgentModeHint() {
-        if (!els.chatAgentModeHint) return;
-        const option = getAgentModeOption(state.chat.agentMode);
-        const limit = getActiveAgentToolLimit();
-        const title = option?.label || 'Balanced';
-        const description = option?.description || 'Default agent behaviour.';
-        const limitText = limit === null ? 'No tool cap.' : `Up to ${limit} tool call${limit === 1 ? '' : 's'}.`;
-        els.chatAgentModeHint.textContent = `${title}: ${limitText} ${description}`;
-    }
-
-    function handleAgentModeChange(event) {
-        const modeId = event.target?.value;
-        const modeOption = getAgentModeOption(modeId);
-        state.chat.agentMode = modeOption?.id || DEFAULT_AGENT_MODE;
-        state.chat.agentToolLimit = resolveAgentToolLimit(state.chat.agentMode);
-        updateAgentModeHint();
-        updateAgentPermissionsUI();
-        if (state.chat.agentEnabled) {
-            const limitLabel = formatToolLimitLabel(state.chat.agentToolLimit);
-            showToast(`Agent mode set to ${modeOption?.label || 'Balanced'} (${limitLabel}).`);
-        }
-    }
-
-    function initAgentModeControl() {
-        if (!els.chatAgentMode) return;
-        const modeOption = getAgentModeOption(state.chat.agentMode) || getAgentModeOption(DEFAULT_AGENT_MODE);
-        state.chat.agentMode = modeOption?.id || DEFAULT_AGENT_MODE;
-        els.chatAgentMode.innerHTML = '';
-        AGENT_TOOL_MODES.forEach((mode) => {
-            const option = document.createElement('option');
-            option.value = mode.id;
-            option.textContent = `${mode.label} · ${formatToolLimitLabel(mode.toolLimit)}`;
-            els.chatAgentMode.appendChild(option);
-        });
-        els.chatAgentMode.value = state.chat.agentMode;
-        state.chat.agentToolLimit = resolveAgentToolLimit(state.chat.agentMode);
-        updateAgentModeHint();
-        els.chatAgentMode.addEventListener('change', handleAgentModeChange);
-    }
-
     function applyAgentOptionsFromServer(options) {
         if (!options || typeof options !== 'object') return;
-        if (typeof options.mode === 'string' && getAgentModeOption(options.mode)) {
-            state.chat.agentMode = options.mode;
-        }
-        if (Object.prototype.hasOwnProperty.call(options, 'toolLimit')) {
-            state.chat.agentToolLimit = normalizeToolLimit(options.toolLimit);
-        }
-        updateAgentModeHint();
         updateAgentPermissionsUI();
     }
 
@@ -2170,7 +2084,6 @@ document.addEventListener('DOMContentLoaded', () => {
                 content: 'Summon the spotlight to plan your layout. I will show every agent step before placing any content.',
             });
         }
-        initAgentModeControl();
         els.chatLauncher.addEventListener('click', () => toggleChatPanel(!state.chat.open));
         if (els.chatClose) {
             els.chatClose.addEventListener('click', () => toggleChatPanel(false));
@@ -2210,6 +2123,9 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         if (els.chatAgentOptionsToggle) {
             els.chatAgentOptionsToggle.addEventListener('click', () => toggleAgentOptionsPanel());
+        }
+        if (els.chatAgentViewMode) {
+            els.chatAgentViewMode.addEventListener('change', handleAgentViewModeChange);
         }
         setChatStatus('Assistant ready');
         updateAgentToggle();
@@ -2385,7 +2301,6 @@ document.addEventListener('DOMContentLoaded', () => {
         if (progressToken) {
             startAgentProgressWatcher(progressToken);
         }
-        const toolLimit = getActiveAgentToolLimit();
         try {
             const response = await fetch('/api/chat', {
                 method: 'POST',
@@ -2405,8 +2320,7 @@ document.addEventListener('DOMContentLoaded', () => {
                         allowLayoutEdits: !!state.chat.agentCanEdit,
                         allowWebSearch: !!state.chat.agentAllowWeb,
                     },
-                    agentModePreset: state.chat.agentMode,
-                    agentToolLimit: toolLimit,
+                    agentViewMode: state.chat.agentViewMode,
                     progressToken,
                 }),
             });
@@ -3357,6 +3271,14 @@ document.addEventListener('DOMContentLoaded', () => {
         showToast(state.chat.agentAllowWeb ? 'Agent can now research with Bing search.' : 'Bing search disabled for the agent.');
     }
 
+    function handleAgentViewModeChange(event) {
+        const select = event.target;
+        if (!select) return;
+        state.chat.agentViewMode = select.value;
+        updateAgentPermissionsUI();
+        showToast(`Agent view mode changed to ${select.value}.`);
+    }
+
     function toggleAgentOptionsPanel(forceOpen) {
         if (!els.chatAgentOptionsToggle || !els.chatAgentIndicator) return;
         if (!state.chat.agentEnabled) {
@@ -3369,19 +3291,26 @@ document.addEventListener('DOMContentLoaded', () => {
         updateAgentPermissionsUI();
     }
 
-    async function toggleAgentMode() {
-        if (state.chat.agentEnabled) {
-            state.chat.agentEnabled = false;
-            state.chat.agentSnapshot = null;
-            state.chat.agentCanEdit = false;
-            state.chat.agentAllowWeb = false;
-            state.chat.optionsOpen = false;
-            updateAgentToggle();
+    function disableAgentMode({ silent = false } = {}) {
+        const wasEnabled = state.chat.agentEnabled;
+        state.chat.agentEnabled = false;
+        state.chat.agentSnapshot = null;
+        state.chat.agentCanEdit = false;
+        state.chat.agentAllowWeb = false;
+        state.chat.optionsOpen = false;
+        updateAgentToggle();
+        if (!silent && wasEnabled) {
             pushChatMessage({
                 role: 'system',
                 content: 'Agent Mode disabled. I will only use chat messages unless you re-enable it.',
             });
             updateChatProjectStatus();
+        }
+    }
+
+    async function toggleAgentMode() {
+        if (state.chat.agentEnabled) {
+            disableAgentMode();
             return;
         }
         toggleChatPanel(true);
@@ -3392,7 +3321,7 @@ document.addEventListener('DOMContentLoaded', () => {
         }
         setChatStatus('Collecting project tree…');
         try {
-            const response = await fetch(`/api/chat/agent-snapshot?project=${encodeURIComponent(state.project)}`);
+            const response = await fetch(`/api/chat/agent-snapshot?project=${encodeURIComponent(state.project)}&agentViewMode=${encodeURIComponent(state.chat.agentViewMode)}`);
             if (!response.ok) {
                 throw new Error((await safeReadText(response)) || 'Unable to inspect project structure.');
             }
@@ -3401,7 +3330,6 @@ document.addEventListener('DOMContentLoaded', () => {
             state.chat.agentSnapshot = data.snapshot;
             state.chat.agentCanEdit = false;
             state.chat.agentAllowWeb = false;
-            state.chat.agentToolLimit = getActiveAgentToolLimit();
             state.chat.optionsOpen = false;
             pushChatMessage({
                 role: 'system',
@@ -3463,14 +3391,10 @@ document.addEventListener('DOMContentLoaded', () => {
                 }
             }
         }
-        if (els.chatAgentMode) {
-            els.chatAgentMode.disabled = !state.chat.agentEnabled;
-            const modeOption = getAgentModeOption(state.chat.agentMode) || getAgentModeOption(DEFAULT_AGENT_MODE);
-            if (modeOption) {
-                els.chatAgentMode.value = modeOption.id;
-            }
+        if (els.chatAgentViewMode) {
+            els.chatAgentViewMode.disabled = !state.chat.agentEnabled;
+            els.chatAgentViewMode.value = state.chat.agentViewMode;
         }
-        updateAgentModeHint();
         if (els.chatAgentOptionsToggle) {
             els.chatAgentOptionsToggle.disabled = !state.chat.agentEnabled;
             els.chatAgentOptionsToggle.setAttribute(
@@ -3495,7 +3419,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 summary = 'Fyona has read-only access until you allow layout edits.';
             }
             if (state.chat.agentEnabled) {
-                summary = `${summary} · ${formatAgentModeLabel()}`;
+                summary = `${summary} · Fyona keeps issuing terminal commands and re-evaluating until the layout matches the request.`;
             }
             els.chatAgentPermissionSummary.textContent = summary;
         }

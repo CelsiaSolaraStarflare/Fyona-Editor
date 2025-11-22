@@ -37,6 +37,7 @@ class AgentToolContext:
     allow_web_search: bool = False
     web_search: Optional[Callable[[str, int], List[Dict[str, str]]]] = None
     web_image_search: Optional[Callable[[str, int], List[Dict[str, Any]]]] = None
+    agent_view_mode: str = "document"  # Either "page" or "document"
 
 
 @dataclass
@@ -175,57 +176,111 @@ def _read_text_preview(path: Path, limit: int) -> str:
 def _handle_read_layout(context: AgentToolContext, params: Dict[str, Any]) -> ToolResult:
     layout = context.load_layout(context.project)
     pages = layout.get("pages") or []
-    payload: Any = deepcopy(layout)
 
-    def _find_page_by_id(page_id: str) -> Optional[Dict[str, Any]]:
+    # If in page mode and no specific page is requested, only return the active page
+    if context.agent_view_mode == "page" and not params.get("page_id") and params.get("page") is None and not params.get("block_id"):
+        active_page_id = layout.get("activePageId")
+        active_page = None
+
+        # Find the active page
         for page in pages:
-            if str(page.get("id")) == str(page_id):
-                return page
-        return None
+            if page.get("id") == active_page_id:
+                active_page = page
+                break
 
-    def _find_page_by_number(page_number: int) -> Optional[Dict[str, Any]]:
-        if page_number <= 0 or page_number > len(pages):
+        # If no active page is set, use the first page
+        if not active_page and pages:
+            active_page = pages[0]
+
+        # Create a layout-like object with only the active page
+        if active_page:
+            payload = {
+                "columns": layout.get("columns"),
+                "baseline": layout.get("baseline"),
+                "gutter": layout.get("gutter"),
+                "snap": layout.get("snap"),
+                "zoom": layout.get("zoom"),
+                "orientation": layout.get("orientation"),
+                "format": layout.get("format"),
+                "dimensions": layout.get("dimensions"),
+                "pages": [deepcopy(active_page)],
+                "activePageId": active_page.get("id"),
+                "activePageName": active_page.get("name"),
+                "totalPages": len(pages),
+                "pageMode": True,  # Flag to indicate this is page-mode data
+                "project": layout.get("project"),
+            }
+        else:
+            # No active page exists, return minimal layout
+            payload = {
+                "columns": layout.get("columns"),
+                "baseline": layout.get("baseline"),
+                "gutter": layout.get("gutter"),
+                "snap": layout.get("snap"),
+                "zoom": layout.get("zoom"),
+                "orientation": layout.get("orientation"),
+                "format": layout.get("format"),
+                "dimensions": layout.get("dimensions"),
+                "pages": [],
+                "activePageId": None,
+                "activePageName": "No Active Page",
+                "totalPages": len(pages),
+                "pageMode": True,  # Flag to indicate this is page-mode data
+                "project": layout.get("project"),
+            }
+    else:
+        # Document mode behavior or when a specific page/block is requested
+        payload: Any = deepcopy(layout)
+
+        def _find_page_by_id(page_id: str) -> Optional[Dict[str, Any]]:
+            for page in pages:
+                if str(page.get("id")) == str(page_id):
+                    return page
             return None
-        return pages[page_number - 1]
 
-    filter_block_id = params.get("block_id")
-    filter_page_id = params.get("page_id")
-    filter_page_number = params.get("page")
+        def _find_page_by_number(page_number: int) -> Optional[Dict[str, Any]]:
+            if page_number <= 0 or page_number > len(pages):
+                return None
+            return pages[page_number - 1]
 
-    resolved_page: Optional[Dict[str, Any]] = None
-    if filter_page_id:
-        resolved_page = _find_page_by_id(filter_page_id)
-    elif filter_page_number is not None:
-        try:
-            resolved_page = _find_page_by_number(int(filter_page_number))
-        except (TypeError, ValueError):
-            resolved_page = None
+        filter_block_id = params.get("block_id")
+        filter_page_id = params.get("page_id")
+        filter_page_number = params.get("page")
 
-    if filter_block_id:
-        block_payload = None
-        for page in pages:
-            for block in page.get("blocks") or []:
-                if block.get("id") == filter_block_id:
-                    block_payload = {
-                        "page": {
-                            "id": page.get("id"),
-                            "name": page.get("name"),
-                            "order": page.get("order"),
-                            "index": pages.index(page) + 1 if pages else None,
-                        },
-                        "block": deepcopy(block),
-                    }
+        resolved_page: Optional[Dict[str, Any]] = None
+        if filter_page_id:
+            resolved_page = _find_page_by_id(filter_page_id)
+        elif filter_page_number is not None:
+            try:
+                resolved_page = _find_page_by_number(int(filter_page_number))
+            except (TypeError, ValueError):
+                resolved_page = None
+
+        if filter_block_id:
+            block_payload = None
+            for page in pages:
+                for block in page.get("blocks") or []:
+                    if block.get("id") == filter_block_id:
+                        block_payload = {
+                            "page": {
+                                "id": page.get("id"),
+                                "name": page.get("name"),
+                                "order": page.get("order"),
+                                "index": pages.index(page) + 1 if pages else None,
+                            },
+                            "block": deepcopy(block),
+                        }
+                        break
+                if block_payload:
                     break
             if block_payload:
-                break
-        if block_payload:
-            payload = block_payload
-    elif resolved_page:
-        payload = {
-            "page": deepcopy(resolved_page),
-            "page_index": pages.index(resolved_page) + 1 if resolved_page in pages else None,
-            "project": layout.get("project"),
-        }
+                payload = block_payload
+        elif resolved_page:
+            payload = {
+                "page": deepcopy(resolved_page),
+                "page_index": pages.index(resolved_page) + 1 if resolved_page in pages else None,
+                "project": layout.get("project"),
+            }
 
     serialized = json.dumps(payload, indent=2, ensure_ascii=False)
     limit = params.get("max_chars")
@@ -262,8 +317,59 @@ def _handle_write_layout(context: AgentToolContext, params: Dict[str, Any]) -> T
         layout_payload = params["layout_json"]
     else:
         raise AgentToolError("Pass the updated layout as 'layout' (object) or 'layout_json' (string).")
-    layout = _coerce_layout_payload(layout_payload)
-    saved = context.save_layout(context.project, layout)
+
+    new_layout = _coerce_layout_payload(layout_payload)
+
+    # If in page mode, we should merge only the pages part to avoid overwriting other pages
+    if context.agent_view_mode == "page":
+        current_layout = context.load_layout(context.project)
+
+        # Update only the active page in the current layout
+        active_page_id = current_layout.get("activePageId")
+        new_pages = new_layout.get("pages", [])
+
+        if new_pages and active_page_id:
+            # Find and update the active page
+            updated_pages = []
+            page_updated = False
+
+            for current_page in current_layout.get("pages", []):
+                if current_page.get("id") == active_page_id:
+                    # Update this active page with the new page data
+                    if len(new_pages) > 0:  # Use the first page from the new layout
+                        updated_page = deepcopy(new_pages[0])
+                        updated_page["id"] = active_page_id  # Preserve the original ID
+                        updated_pages.append(updated_page)
+                        page_updated = True
+                    else:
+                        updated_pages.append(current_page)  # Keep unchanged if no new page data
+                else:
+                    updated_pages.append(current_page)  # Keep other pages unchanged
+
+            # If the active page was not found, handle appropriately
+            if not page_updated and len(new_pages) > 0:
+                # The active page might not exist in the current layout, so add it
+                new_page = deepcopy(new_pages[0])
+                if not new_page.get("id"):
+                    new_page["id"] = active_page_id
+                updated_pages.append(new_page)
+                page_updated = True
+
+            # Update the current layout with the modified pages
+            current_layout["pages"] = updated_pages
+            # Preserve other important layout properties from the new layout
+            for key in ["columns", "baseline", "gutter", "snap", "zoom", "orientation", "format", "dimensions"]:
+                if key in new_layout:
+                    current_layout[key] = new_layout[key]
+
+            saved = context.save_layout(context.project, current_layout)
+        else:
+            # If there's no active page, just save the new layout as-is
+            saved = context.save_layout(context.project, new_layout)
+    else:
+        # Document mode, save the entire layout as before
+        saved = context.save_layout(context.project, new_layout)
+
     summary = _summarize_layout(saved)
     return ToolResult(content=f"layout.json saved successfully.\n{summary}", layout_changed=True)
 

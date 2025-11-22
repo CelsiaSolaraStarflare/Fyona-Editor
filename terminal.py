@@ -22,6 +22,29 @@ class TerminalResult:
 
 CommandHandler = Callable[[Sequence[str]], TerminalResult]
 
+TERMINAL_COMMANDS = [
+    "help",
+    "status",
+    "pages",
+    "echo",
+    "blocks",
+    "move",
+    "resize",
+    "duplicate",
+    "delete",
+    "remove",
+    "newpage",
+    "renamepage",
+    "deletepage",
+    "activate",
+    "grid",
+    "add",
+    "edit",
+    "content",
+    "append",
+    "prepend",
+]
+
 DEFAULT_FONT = "inter"
 DEFAULT_FONT_SIZE = 16
 DEFAULT_TEXT_COLOR = "#1c2333"

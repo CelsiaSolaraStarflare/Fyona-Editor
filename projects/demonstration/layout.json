@@ -371,16 +371,22 @@
       ]
     },
     {
-      "id": "page-2-new",
+      "id": "page-be8e36e5",
       "name": "Page 2",
       "order": 1,
+      "blocks": []
+    },
+    {
+      "id": "page-2-new",
+      "name": "Page 3",
+      "order": 2,
       "blocks": [
         {
           "id": "toc-title",
           "type": "text",
           "content": "TABLE OF CONTENTS",
           "position": {
-            "left": 64,
+            "left": 63,
             "top": 64,
             "width": 674,
             "height": 130
