@@ -66,6 +66,9 @@ document.addEventListener('DOMContentLoaded', () => {
         chatAgentViewMode: document.getElementById('chat-agent-view-mode'),
         chatResizeHandle: document.getElementById('chat-resize-handle'),
         chatTokenStats: document.getElementById('chat-token-stats'),
+        chatProgressbar: document.getElementById('chat-progressbar'),
+        chatProgressbarFill: document.getElementById('chat-progressbar-fill'),
+        chatProgressbarLabel: document.getElementById('chat-progressbar-label'),
     };
 
     const fyonaConfig = window.FYONA_CONFIG || {};
@@ -182,8 +185,8 @@ document.addEventListener('DOMContentLoaded', () => {
     const CHAT_PANEL_MAX_WIDTH = 640;
     const CHAT_PANEL_MIN_HEIGHT = 260;
     const CHAT_PANEL_MAX_HEIGHT = 640;
-    const CHAT_TRACE_STEP_LIMIT = 20;
-    const CHAT_TRACE_TEXT_LIMIT = 180;
+    const CHAT_TRACE_STEP_LIMIT = 200;
+    const CHAT_TRACE_TEXT_LIMIT = 260;
     let layoutSyncTimeout = null;
     const AUTO_PAGE_NAME_PATTERN = /^page\s+\d+$/i;
     const hydratedPages = new Set();
@@ -215,6 +218,7 @@ document.addEventListener('DOMContentLoaded', () => {
         await loadLayout(state.project);
         await loadTokenStats();
         renderDesignIntent();
+        setChatProgressBar({ active: false });
     }
 
     function configureZoomControl() {
@@ -2297,6 +2301,7 @@ document.addEventListener('DOMContentLoaded', () => {
     async function sendMessageToAssistant(text, attachments) {
         state.chat.sending = true;
         setChatStatus('Contacting assistant…');
+        setChatProgressBar({ active: true, label: 'Planning steps…', indeterminate: true });
         const progressToken = state.chat.agentEnabled ? generateProgressToken() : null;
         if (progressToken) {
             startAgentProgressWatcher(progressToken);
@@ -2355,6 +2360,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 content: data.reply || 'I received your message.',
                 attachments: replyAttachments,
             });
+            setChatProgressBar({ active: true, label: 'Applying changes…', percent: 90 });
             const traceSummary = formatAgentTraceSummary(data.agentTrace);
             if (traceSummary) {
                 pushChatMessage({
@@ -2379,6 +2385,7 @@ document.addEventListener('DOMContentLoaded', () => {
                 await finalizeAgentProgressWatcher(data.progressToken || progressToken);
             }
             setChatStatus('Assistant ready');
+            setChatProgressBar({ active: false });
         } catch (error) {
             console.error(error);
             pushChatMessage({
@@ -2387,6 +2394,7 @@ document.addEventListener('DOMContentLoaded', () => {
             });
             showToast(error.message || 'Assistant unavailable', true);
             setChatStatus('Assistant unavailable');
+            setChatProgressBar({ active: false });
             stopAgentProgressWatcher('Assistant unavailable.');
         } finally {
             state.chat.sending = false;
@@ -2395,54 +2403,27 @@ document.addEventListener('DOMContentLoaded', () => {
 
     function formatAgentTraceSummary(traceItems) {
         if (!Array.isArray(traceItems) || !traceItems.length) return '';
-        const truncated = traceItems.length > CHAT_TRACE_STEP_LIMIT;
         const lines = [];
-        let stepCounter = 0;
-        let pendingDetail = '';
-        let pendingCount = 0;
-
-        const flushPending = () => {
-            if (!pendingDetail) return;
-            stepCounter += 1;
-            const suffix = pendingCount > 1 ? ` ×${pendingCount}` : '';
-            lines.push(`${stepCounter}. ${pendingDetail}${suffix}`);
-            pendingDetail = '';
-            pendingCount = 0;
-        };
-
-        traceItems.slice(0, CHAT_TRACE_STEP_LIMIT).forEach((entry) => {
+        const items = traceItems.slice(0, CHAT_TRACE_STEP_LIMIT);
+        items.forEach((entry, idx) => {
             if (!entry || typeof entry !== 'object') return;
-            const kind = String(entry.kind || '').toLowerCase();
-            let detail = '';
+            const kind = (entry.kind || '').toString().toLowerCase();
+            const iter = entry.iteration ? ` [iter ${entry.iteration}]` : '';
+            let detail = summarizeTextSnippet(entry.message || entry.result || '');
             if (kind === 'tool') {
-                const status = entry.status === 'error' ? '✖' : '✓';
+                const status = entry.status === 'error' ? '✖ error' : '✓ ok';
                 const name = entry.name || 'tool';
-                const summary = summarizeTextSnippet(entry.result || entry.message || '');
-                detail = `${status} ${name}${summary ? ` — ${summary}` : ''}`;
-            } else if (kind === 'thought') {
-                const thought = summarizeTextSnippet(entry.message || '');
-                if (thought) {
-                    detail = thought;
-                }
+                detail = `${status} · ${name}${detail ? ` — ${detail}` : ''}`;
             } else if (kind === 'limit' || kind === 'error') {
-                const warning = summarizeTextSnippet(entry.message || '');
-                detail = `⚠ ${warning || 'Agent stopped before finishing.'}`;
+                detail = `⚠ ${detail || 'Agent stopped before finishing.'}`;
+            } else if (!detail) {
+                detail = kind || 'step';
             }
-            if (!detail) return;
-            if (detail === pendingDetail) {
-                pendingCount += 1;
-                return;
-            }
-            flushPending();
-            pendingDetail = detail;
-            pendingCount = 1;
+            lines.push(`${idx + 1}.${iter ? iter : ''} [${kind || 'step'}] ${detail}`);
         });
-        flushPending();
-        if (!lines.length) {
-            return '';
-        }
+        const truncated = traceItems.length > CHAT_TRACE_STEP_LIMIT;
         if (truncated) {
-            lines.push('…additional steps omitted…');
+            lines.push(`…${traceItems.length - CHAT_TRACE_STEP_LIMIT} more step(s) not shown…`);
         }
         return `Agent steps:\n${lines.join('\n')}`;
     }
@@ -2701,6 +2682,74 @@ document.addEventListener('DOMContentLoaded', () => {
         return new Promise((resolve) => requestAnimationFrame(() => resolve()));
     }
 
+    function parseMarkdown(text) {
+        // Convert markdown to HTML
+        if (!text) return '';
+
+        // HTML-escape the content to prevent XSS, but we'll unescape it for safe markdown elements
+        const escapeHtml = (unsafe) => {
+            return unsafe
+                .replace(/&/g, "&amp;")
+                .replace(/</g, "&lt;")
+                .replace(/>/g, "&gt;")
+                .replace(/"/g, "&quot;")
+                .replace(/'/g, "&#039;");
+        };
+
+        // First, extract code blocks to preserve them during other transformations
+        const codeBlocks = [];
+        text = text.replace(/```([\s\S]*?)```/g, (match, code) => {
+            const index = codeBlocks.length;
+            codeBlocks[index] = `<pre class="chat-md-code"><code>${escapeHtml(code)}</code></pre>`;
+            return `{{CODE_BLOCK_${index}}}`;
+        });
+
+        // Then extract inline code to preserve it
+        const inlineCodes = [];
+        text = text.replace(/`([^`]+)`/g, (match, code) => {
+            const index = inlineCodes.length;
+            inlineCodes[index] = `<code class="chat-md-inline">${escapeHtml(code)}</code>`;
+            return `{{INLINE_CODE_${index}}}`;
+        });
+
+        // Convert headers
+        text = text.replace(/^### (.*$)/gm, '<h3>$1</h3>');
+        text = text.replace(/^## (.*$)/gm, '<h2>$1</h2>');
+        text = text.replace(/^# (.*$)/gm, '<h1>$1</h1>');
+
+        // Convert bold and italic (after headers)
+        text = text.replace(/\*\*(.*?)\*\*/g, '<strong>$1</strong>');
+        text = text.replace(/\*(.*?)\*/g, '<em>$1</em>');
+
+        // Convert links
+        text = text.replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
+
+        // Convert bullet points
+        text = text.replace(/^\s*\*\s(.*)$/gm, '<li>$1</li>');
+        text = text.replace(/(<li>.*<\/li>[\s\n]*)+/g, '<ul class="chat-md-list">$&</ul>');
+
+        // Convert numbered lists
+        text = text.replace(/^\s*\d+\.\s(.*)$/gm, '<li>$1</li>');
+        text = text.replace(/(<li>.*<\/li>[\s\n]*)+/g, '<ol class="chat-md-list">$&</ol>');
+
+        // Convert paragraphs (split by double newline)
+        text = text.replace(/\n\s*\n/g, '</p>\n<p>');
+
+        // Replace single line breaks with <br> (inside paragraphs)
+        text = text.replace(/([^\n])\n([^\n])/g, '$1<br>$2');
+
+        // Restore code blocks
+        text = text.replace(/\{\{CODE_BLOCK_(\d+)\}\}/g, (match, index) => codeBlocks[parseInt(index)]);
+        text = text.replace(/\{\{INLINE_CODE_(\d+)\}\}/g, (match, index) => inlineCodes[parseInt(index)]);
+
+        // Wrap in paragraph tags if needed (not already wrapped)
+        if (text && !text.trim().startsWith('<')) {
+            text = '<p>' + text + '</p>';
+        }
+
+        return text;
+    }
+
     function renderChatMessages() {
         if (!els.chatLog) return;
         els.chatLog.innerHTML = '';
@@ -2712,9 +2761,15 @@ document.addEventListener('DOMContentLoaded', () => {
             }
             const bubble = document.createElement('div');
             bubble.className = 'chat-message__bubble';
+            const meta = document.createElement('div');
+            meta.className = 'chat-message__meta';
+            const roleLabel =
+                message.role === 'user' ? 'You' : message.role === 'assistant' ? 'Fyona' : 'System';
+            meta.textContent = roleLabel;
+            bubble.appendChild(meta);
             const textEl = document.createElement('div');
             textEl.className = 'chat-message__text';
-            textEl.textContent = message.content || '';
+            textEl.innerHTML = parseMarkdown(message.content || '');
             if (message.variant === 'muted') {
                 textEl.classList.add('chat-message__text--muted');
             }
@@ -2733,6 +2788,33 @@ document.addEventListener('DOMContentLoaded', () => {
         scrollChatLogToBottom();
     }
 
+    function setChatProgressBar(options = {}) {
+        const bar = els.chatProgressbar;
+        const fill = els.chatProgressbarFill;
+        const label = els.chatProgressbarLabel;
+        if (!bar || !fill || !label) return;
+        const active = !!options.active;
+        if (!active) {
+            bar.hidden = true;
+            bar.classList.remove('is-indeterminate');
+            fill.style.width = '0%';
+            label.textContent = '';
+            return;
+        }
+        const percent = typeof options.percent === 'number' ? clampNumber(options.percent, 0, 100) : null;
+        const indeterminate = !!options.indeterminate;
+        bar.hidden = false;
+        bar.classList.toggle('is-indeterminate', indeterminate);
+        label.textContent = options.label || 'Working…';
+        if (indeterminate) {
+            fill.style.width = '40%';
+        } else if (percent === null) {
+            fill.style.width = '0%';
+        } else {
+            fill.style.width = `${percent}%`;
+        }
+    }
+
     function generateProgressToken() {
         return `progress-${Date.now().toString(16)}-${Math.random().toString(16).slice(2, 10)}`;
     }
@@ -2741,6 +2823,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (!progressId) return;
         stopAgentProgressWatcher();
         toggleChatPanel(true);
+        setChatProgressBar({ active: true, label: 'Agent running…', indeterminate: true });
         const message = pushChatMessage({
             role: 'system',
             content: 'Agent preparing tasks…',
@@ -2769,6 +2852,7 @@ document.addEventListener('DOMContentLoaded', () => {
         if (finalText && watcher.messageId) {
             updateAgentProgressMessage(finalText, true);
         }
+        setChatProgressBar({ active: false });
         const retainedEvents = Array.isArray(watcher.events) ? watcher.events.slice() : [];
         const retainedStatus = watcher.lastStatus;
         state.chat.progress = {
@@ -2831,10 +2915,20 @@ document.addEventListener('DOMContentLoaded', () => {
             watcher.historyLength = progress.events.length;
             watcher.events = progress.events.slice();
         }
+        const percentGuess = Math.min(95, Math.max(10, (watcher.events.length || 1) * 12));
+        const isDone = !!(progress && typeof progress === 'object' && progress.done);
+        const isError = !!(progress && typeof progress === 'object' && progress.error);
+        setChatProgressBar({
+            active: true,
+            label: watcher.lastStatus || 'Working…',
+            percent: isDone ? 100 : percentGuess,
+            indeterminate: isError,
+        });
         renderChatMessages();
         renderSpotlightProgress(progress);
         if (finalize) {
             state.chat.progress.messageId = null;
+            setTimeout(() => setChatProgressBar({ active: false }), 250);
         }
     }
 
@@ -2957,9 +3051,16 @@ document.addEventListener('DOMContentLoaded', () => {
             img.loading = 'lazy';
             card.appendChild(img);
         } else if (attachment.content) {
+            const details = document.createElement('details');
+            details.className = 'chat-attachment__details';
+            details.open = false;
+            const summary = document.createElement('summary');
+            summary.textContent = `Show ${attachment.label || attachment.type || 'attachment'}`;
+            details.appendChild(summary);
             const pre = document.createElement('pre');
             pre.textContent = attachment.content;
-            card.appendChild(pre);
+            details.appendChild(pre);
+            card.appendChild(details);
         }
         return card;
     }

@@ -1251,9 +1251,10 @@ input:focus {
 }
 
 .chat-panel__surface {
-    display: grid;
-    grid-template-columns: 1fr 1.05fr;
+    display: flex;
+    flex-direction: column;
     overflow-y: auto;
+    gap: 12px;
 }
 
 .spotlight-track {
@@ -1309,14 +1310,7 @@ input:focus {
 }
 
 .spotlight-step__index {
-    width: 28px;
-    height: 28px;
-    border-radius: 10px;
-    display: grid;
-    place-items: center;
-    font-weight: 700;
-    background: rgba(255, 255, 255, 0.08);
-    color: #f7f9ff;
+    display: none;
 }
 
 .spotlight-step__body {
@@ -1458,6 +1452,84 @@ input:focus {
     padding: 8px;
     border-radius: 10px;
     margin: 4px 0 0;
+}
+
+.chat-attachment__details summary {
+    cursor: pointer;
+    color: rgba(232, 237, 255, 0.9);
+    margin-bottom: 6px;
+}
+
+.chat-attachment__details summary::marker {
+    color: rgba(232, 237, 255, 0.6);
+}
+
+.chat-md-code {
+    background: rgba(255, 255, 255, 0.06);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 8px;
+    padding: 8px;
+    white-space: pre-wrap;
+    display: block;
+}
+
+.chat-md-inline {
+    background: rgba(255, 255, 255, 0.08);
+    padding: 0 4px;
+    border-radius: 4px;
+}
+
+.chat-md-list {
+    margin: 6px 0 6px 16px;
+    padding-left: 10px;
+}
+
+.chat-progressbar {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
+    padding: 8px;
+    background: rgba(255, 255, 255, 0.03);
+}
+
+.chat-progressbar__label {
+    font-size: 0.88rem;
+    color: rgba(232, 237, 255, 0.85);
+}
+
+.chat-progressbar__track {
+    position: relative;
+    height: 8px;
+    border-radius: 6px;
+    background: rgba(255, 255, 255, 0.08);
+    overflow: hidden;
+}
+
+.chat-progressbar__fill {
+    position: absolute;
+    left: 0;
+    top: 0;
+    bottom: 0;
+    width: 0%;
+    background: linear-gradient(120deg, #8fd3ff, #6dd6ff);
+    border-radius: 6px;
+    transition: width 0.25s ease;
+}
+
+.chat-progressbar.is-indeterminate .chat-progressbar__fill {
+    width: 40%;
+    animation: chat-progressbar-pulse 1s linear infinite;
+}
+
+@keyframes chat-progressbar-pulse {
+    0% {
+        transform: translateX(-60%);
+    }
+    100% {
+        transform: translateX(160%);
+    }
 }
 
 .chat-form {

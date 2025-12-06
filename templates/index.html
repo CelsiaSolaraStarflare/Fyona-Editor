@@ -284,19 +284,17 @@
             <div class="chat-panel__attachments" id="chat-attachments" hidden></div>
 
             <div class="chat-panel__surface">
-                <section class="spotlight-track" aria-label="Agent progress">
-                    <header class="spotlight-track__header">
-                        <p class="spotlight-track__title">Agent timeline</p>
-                        <p class="spotlight-track__hint">Every step before content lands on the canvas.</p>
-                    </header>
-                    <ol class="spotlight-steps" id="chat-progress"></ol>
-                </section>
-
                 <section class="spotlight-track spotlight-results" aria-label="Assistant output">
                     <header class="spotlight-track__header">
                         <p class="spotlight-track__title">Results</p>
                         <p class="spotlight-track__hint">Reasons, drafts, and snapshots.</p>
                     </header>
+                    <div class="chat-progressbar" id="chat-progressbar" hidden aria-live="polite">
+                        <div class="chat-progressbar__label" id="chat-progressbar-label">Working…</div>
+                        <div class="chat-progressbar__track">
+                            <div class="chat-progressbar__fill" id="chat-progressbar-fill"></div>
+                        </div>
+                    </div>
                     <div class="chat-log" id="chat-log" role="log" aria-live="polite"></div>
                 </section>
             </div>
